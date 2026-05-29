@@ -1,0 +1,736 @@
+"""
+db.py — thin data-access layer for the trace server.
+
+This module hides three things from callers:
+
+  1. Backend selection (sqlite / postgres) — chosen from DATABASE_URL.
+  2. Backend differences:
+       • parameter style: SQLite uses "?", psycopg2 uses "%s"
+       • AUTOINCREMENT vs SERIAL primary keys
+       • lastrowid vs RETURNING for the id of a newly-inserted row
+       • row factories — both backends are normalised to dict-like rows
+  3. Schema migrations — adds missing columns from earlier versions.
+
+Why hand-rolled instead of SQLAlchemy?
+  • Two backends, one table family, a handful of queries — an ORM is more
+    abstraction than this earns.
+  • Every SQL statement is right there in the code, easy to read.
+
+Privacy filtering happens here too. Aggregate / leaderboard queries JOIN
+users and filter by the relevant consent flag (is_public,
+share_lifestyle_in_aggregate, share_lifestyle_publicly) so privacy is
+enforced at the data layer, not just in the API.
+"""
+
+import os
+import sqlite3
+import time
+import datetime
+from urllib.parse import urlparse
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Constants
+# ═════════════════════════════════════════════════════════════════════════
+
+# Bump this whenever the ToS / FAQ text in /api/tos changes meaningfully.
+# Users who accepted an older version will be re-prompted on next load.
+CURRENT_TOS_VERSION = 1
+
+# Columns clients may set when POSTing an attempt. The full schema has more
+# (id, created_at) which are server-managed and excluded here.
+ALLOWED_ATTEMPT_COLUMNS = {
+    'user_id', 'seed', 'size', 'difficulty',
+    'started_at', 'completed_at', 'duration_ms',
+    'moves', 'backtracks', 'undos', 'clears', 'solved',
+    'is_public', 'env_verified', 'tos_version',
+    'latitude', 'longitude', 'location_label',
+    'local_time_iso', 'sunrise_iso', 'sunset_iso',
+    'weather_temp_c', 'weather_condition', 'weather_wind_kmh',
+    'last_meal_at', 'last_meal_desc',
+    'last_stimulant_at', 'last_stimulant_desc', 'last_stimulant_amount',
+    'last_intoxicant_at', 'last_intoxicant_desc', 'last_intoxicant_amount',
+    'last_exercise_at', 'last_exercise_desc', 'last_exercise_amount',
+    'woke_at', 'slept_at',
+    'sleep_quality_desc', 'sleep_quality_amount',
+}
+
+REQUIRED_ATTEMPT_COLUMNS = {'user_id', 'seed', 'size', 'difficulty', 'started_at'}
+
+# Columns clients may set when POSTing a user profile.
+ALLOWED_USER_COLUMNS = {
+    'user_id', 'display_name',
+    'public_by_default',
+    'share_lifestyle_publicly',
+    'share_lifestyle_in_aggregate',
+    'tos_version',
+}
+
+# Lifestyle / self-report columns — used by the insights slicer to know
+# which columns require the share_lifestyle_in_aggregate consent flag.
+# Environmental fields (location, weather) DON'T require this — they're
+# auto-detected, not personal-history disclosures, and are covered by
+# basic ToS acceptance.
+LIFESTYLE_COLUMNS = {
+    'last_meal_at', 'last_meal_desc',
+    'last_stimulant_at', 'last_stimulant_desc', 'last_stimulant_amount',
+    'last_intoxicant_at', 'last_intoxicant_desc', 'last_intoxicant_amount',
+    'last_exercise_at', 'last_exercise_desc', 'last_exercise_amount',
+    'woke_at', 'slept_at',
+    'sleep_quality_desc', 'sleep_quality_amount',
+}
+
+# Columns the insights slicer is allowed to slice by — superset of lifestyle
+# plus environmental fields. Anything else is rejected (no slicing by
+# duration_ms, no slicing by user_id, etc.)
+SLICEABLE_COLUMNS = LIFESTYLE_COLUMNS | {
+    'weather_condition', 'location_label',
+    # Derived (computed in SQL) — not real columns but handled specially
+    'hour_of_day', 'day_of_week',
+}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Connection
+# ═════════════════════════════════════════════════════════════════════════
+
+def open_db():
+    """
+    Open a connection based on DATABASE_URL. Returns (conn, backend, placeholder)
+    where backend is 'sqlite' or 'postgres' and placeholder is '?' or '%s'.
+    """
+    url = os.environ.get('DATABASE_URL', 'sqlite:///trace.db')
+    parsed = urlparse(url)
+
+    if parsed.scheme == 'sqlite':
+        path = parsed.path
+        if path.startswith('/'):
+            path = path[1:]
+        if not path:
+            path = 'trace.db'
+        conn = sqlite3.connect(path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
+        return conn, 'sqlite', '?'
+
+    if parsed.scheme in ('postgres', 'postgresql'):
+        try:
+            import psycopg2
+            import psycopg2.extras
+        except ImportError as e:
+            raise RuntimeError(
+                "DATABASE_URL is a Postgres URL but psycopg2 is not installed. "
+                "Add psycopg2-binary to your requirements (see requirements.txt)."
+            ) from e
+        conn = psycopg2.connect(url)
+        conn._trace_cursor_factory = psycopg2.extras.RealDictCursor
+        return conn, 'postgres', '%s'
+
+    raise ValueError(f"Unsupported DATABASE_URL scheme: {parsed.scheme!r}")
+
+
+def cursor(conn, backend):
+    """Backend-agnostic cursor factory yielding dict-style rows."""
+    if backend == 'postgres':
+        return conn.cursor(cursor_factory=conn._trace_cursor_factory)
+    return conn.cursor()
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Schema bootstrap + migration
+# ═════════════════════════════════════════════════════════════════════════
+
+# Columns we might need to ADD to an existing v1 attempts table. Each entry
+# is (column_name, column_type_for_sqlite, column_type_for_postgres). When
+# init_schema runs, we try each ADD and ignore the "duplicate column" error
+# that fires if it's already there.
+ATTEMPTS_V2_COLUMNS = [
+    ('is_public',    'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+    ('env_verified', 'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+    ('tos_version',  'INTEGER NOT NULL DEFAULT 1', 'INTEGER NOT NULL DEFAULT 1'),
+]
+
+def init_schema(conn, backend, schema_path='schema.sql'):
+    """
+    Apply schema.sql and run additive migrations.
+    Idempotent — safe to call on every server start.
+    """
+    with open(schema_path) as f:
+        sql = f.read()
+
+    if backend == 'postgres':
+        sql = sql.replace(
+            'INTEGER PRIMARY KEY AUTOINCREMENT',
+            'SERIAL PRIMARY KEY'
+        )
+
+    cur = cursor(conn, backend)
+    if backend == 'sqlite':
+        cur.executescript(sql)
+    else:
+        cur.execute(sql)
+    conn.commit()
+    cur.close()
+
+    # Additive migrations: try to add v2 columns to attempts. The CREATE TABLE
+    # above already includes them for fresh installs; this catches existing
+    # v1 databases.
+    for col_name, sqlite_type, pg_type in ATTEMPTS_V2_COLUMNS:
+        col_type = pg_type if backend == 'postgres' else sqlite_type
+        cur = cursor(conn, backend)
+        try:
+            cur.execute(f"ALTER TABLE attempts ADD COLUMN {col_name} {col_type}")
+            conn.commit()
+        except Exception:
+            # Column probably already exists. Both backends throw on duplicate.
+            conn.rollback()
+        finally:
+            cur.close()
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Users
+# ═════════════════════════════════════════════════════════════════════════
+
+def get_user(conn, backend, placeholder, user_id):
+    """Returns the user row as a dict, or None if not found."""
+    cur = cursor(conn, backend)
+    cur.execute(f"SELECT * FROM users WHERE user_id = {placeholder}", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else None
+
+
+def upsert_user(conn, backend, placeholder, data):
+    """
+    Create or update a user. `data` must include user_id; other keys are
+    optional and filtered against ALLOWED_USER_COLUMNS.
+
+    On INSERT: tos_accepted_at is required. On UPDATE: it's not touched.
+    Returns the resulting user row.
+    """
+    user_id = data.get('user_id')
+    if not user_id:
+        raise ValueError("user_id required")
+
+    existing = get_user(conn, backend, placeholder, user_id)
+    now = int(time.time() * 1000)
+
+    # Filter incoming data to whitelist
+    clean = {k: v for k, v in data.items() if k in ALLOWED_USER_COLUMNS}
+
+    if existing is None:
+        # New user — must include ToS acceptance signal
+        if 'tos_version' not in clean:
+            raise ValueError("tos_version required for new users (ToS acceptance)")
+        row = {
+            'user_id': user_id,
+            'display_name': clean.get('display_name'),
+            'tos_accepted_at': now,
+            'tos_version': clean.get('tos_version', CURRENT_TOS_VERSION),
+            'public_by_default': int(clean.get('public_by_default', 0)),
+            'share_lifestyle_publicly': int(clean.get('share_lifestyle_publicly', 0)),
+            'share_lifestyle_in_aggregate': int(clean.get('share_lifestyle_in_aggregate', 0)),
+            'created_at': now,
+            'updated_at': now,
+        }
+        keys = list(row.keys())
+        placeholders = ', '.join([placeholder] * len(keys))
+        cur = cursor(conn, backend)
+        cur.execute(
+            f"INSERT INTO users ({', '.join(keys)}) VALUES ({placeholders})",
+            [row[k] for k in keys]
+        )
+        conn.commit()
+        cur.close()
+        return row
+
+    # Existing user — UPDATE the columns provided
+    # tos_accepted_at gets re-set if tos_version goes up (re-acceptance)
+    update_cols = {}
+    for k in ('display_name', 'public_by_default',
+              'share_lifestyle_publicly', 'share_lifestyle_in_aggregate'):
+        if k in clean:
+            update_cols[k] = (int(clean[k]) if k != 'display_name' else clean[k])
+
+    if 'tos_version' in clean and clean['tos_version'] > existing['tos_version']:
+        update_cols['tos_version'] = clean['tos_version']
+        update_cols['tos_accepted_at'] = now
+
+    update_cols['updated_at'] = now
+
+    if update_cols:
+        set_clause = ', '.join(f"{k} = {placeholder}" for k in update_cols.keys())
+        values = list(update_cols.values()) + [user_id]
+        cur = cursor(conn, backend)
+        cur.execute(
+            f"UPDATE users SET {set_clause} WHERE user_id = {placeholder}",
+            values
+        )
+        conn.commit()
+        cur.close()
+
+    return get_user(conn, backend, placeholder, user_id)
+
+
+def delete_user_data(conn, backend, placeholder, user_id):
+    """
+    GDPR-style erasure: delete user row and all their attempts. Returns the
+    count of attempts deleted.
+    """
+    cur = cursor(conn, backend)
+    cur.execute(f"DELETE FROM attempts WHERE user_id = {placeholder}", (user_id,))
+    attempts_deleted = cur.rowcount
+    cur.execute(f"DELETE FROM users WHERE user_id = {placeholder}", (user_id,))
+    conn.commit()
+    cur.close()
+    return attempts_deleted
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Attempts
+# ═════════════════════════════════════════════════════════════════════════
+
+def insert_attempt(conn, backend, placeholder, data):
+    """
+    Insert an attempt. Auto-resolves is_public from the user's
+    public_by_default if not explicitly set.
+    """
+    missing = REQUIRED_ATTEMPT_COLUMNS - set(data.keys())
+    if missing:
+        raise ValueError(f"Missing required fields: {sorted(missing)}")
+
+    clean = {k: v for k, v in data.items() if k in ALLOWED_ATTEMPT_COLUMNS}
+
+    # If is_public wasn't sent, default from the user's profile.
+    if 'is_public' not in clean:
+        user = get_user(conn, backend, placeholder, clean['user_id'])
+        clean['is_public'] = int(user['public_by_default']) if user else 0
+
+    # Mark env_verified if any environmental field is non-null
+    if 'env_verified' not in clean:
+        env_fields = ('latitude', 'longitude', 'weather_temp_c')
+        clean['env_verified'] = 1 if any(clean.get(f) is not None for f in env_fields) else 0
+
+    clean['created_at'] = int(time.time() * 1000)
+
+    keys = list(clean.keys())
+    placeholders = ', '.join([placeholder] * len(keys))
+    cols = ', '.join(keys)
+    values = [clean[k] for k in keys]
+
+    cur = cursor(conn, backend)
+    if backend == 'postgres':
+        cur.execute(
+            f"INSERT INTO attempts ({cols}) VALUES ({placeholders}) RETURNING id",
+            values,
+        )
+        new_id = cur.fetchone()['id']
+    else:
+        cur.execute(
+            f"INSERT INTO attempts ({cols}) VALUES ({placeholders})",
+            values,
+        )
+        new_id = cur.lastrowid
+    conn.commit()
+    cur.close()
+    return new_id
+
+
+def list_attempts(conn, backend, placeholder, user_id=None, limit=50):
+    """List recent attempts, optionally filtered to one user."""
+    cur = cursor(conn, backend)
+    if user_id is None:
+        cur.execute(
+            f"SELECT * FROM attempts ORDER BY started_at DESC LIMIT {placeholder}",
+            (limit,),
+        )
+    else:
+        cur.execute(
+            f"SELECT * FROM attempts WHERE user_id = {placeholder} "
+            f"ORDER BY started_at DESC LIMIT {placeholder}",
+            (user_id, limit),
+        )
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+
+def summary(conn, backend):
+    """High-level counts across all stored attempts."""
+    cur = cursor(conn, backend)
+    cur.execute("""
+        SELECT
+            COUNT(*) AS total,
+            SUM(solved) AS solved,
+            CAST(AVG(CASE WHEN solved=1 THEN duration_ms END) AS INTEGER) AS avg_ms,
+            AVG(CASE WHEN solved=1 THEN backtracks END) AS avg_backtracks
+        FROM attempts
+    """)
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else {'total': 0, 'solved': 0, 'avg_ms': 0, 'avg_backtracks': None}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Daily puzzles (phase 2)
+# ═════════════════════════════════════════════════════════════════════════
+
+# How daily puzzles are picked: a rotation over (size, difficulty) bands
+# that cycles through the week, so users see variety. The seed for each
+# day is the date string itself, so anyone can independently regenerate
+# the same puzzle from that day without server help.
+#
+# Day-of-week (Mon=0..Sun=6) → (size, difficulty)
+DAILY_ROTATION = {
+    0: (6, 'tricky'),    # Mon
+    1: (6, 'knotty'),    # Tue
+    2: (7, 'tricky'),    # Wed
+    3: (7, 'knotty'),    # Thu
+    4: (6, 'fiendish'),  # Fri
+    5: (7, 'fiendish'),  # Sat
+    6: (8, 'tricky'),    # Sun — gentler kickoff for weekend
+}
+
+def derive_daily(date_str):
+    """Return (seed, size, difficulty) for a given YYYY-MM-DD."""
+    d = datetime.date.fromisoformat(date_str)
+    size, difficulty = DAILY_ROTATION[d.weekday()]
+    return (date_str, size, difficulty)
+
+
+def get_or_create_daily(conn, backend, placeholder, date_str=None):
+    """
+    Return the daily puzzle for a date (default today UTC). Creates the
+    row on first access.
+    """
+    if date_str is None:
+        date_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+
+    cur = cursor(conn, backend)
+    cur.execute(f"SELECT * FROM daily_puzzles WHERE date = {placeholder}", (date_str,))
+    row = cur.fetchone()
+    cur.close()
+    if row:
+        return dict(row)
+
+    seed, size, difficulty = derive_daily(date_str)
+    now = int(time.time() * 1000)
+    cur = cursor(conn, backend)
+    try:
+        cur.execute(
+            f"INSERT INTO daily_puzzles (date, seed, size, difficulty, created_at) "
+            f"VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
+            (date_str, seed, size, difficulty, now)
+        )
+        conn.commit()
+    except Exception:
+        # Race condition — another request inserted first. Re-read.
+        conn.rollback()
+    finally:
+        cur.close()
+
+    cur = cursor(conn, backend)
+    cur.execute(f"SELECT * FROM daily_puzzles WHERE date = {placeholder}", (date_str,))
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else None
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Leaderboards (phase 2)
+# ═════════════════════════════════════════════════════════════════════════
+
+# For per-puzzle and per-day leaderboards, we want the user's BEST attempt
+# (fastest solve), not all attempts. Several attempts per user-puzzle are
+# common — they might solve again on a different device, or replay.
+#
+# The query: for each user with a solved attempt on this puzzle, take their
+# fastest duration. JOIN to users for display_name. Filter by is_public AND
+# solved.
+
+def leaderboard_puzzle(conn, backend, placeholder, seed, size, difficulty, limit=50):
+    """
+    Top times for one specific puzzle. Only public solved attempts.
+    Returns one row per user (their personal best on this puzzle).
+    """
+    cur = cursor(conn, backend)
+    cur.execute(f"""
+        SELECT
+            u.display_name,
+            a.user_id,
+            MIN(a.duration_ms) AS best_ms,
+            MIN(a.moves)       AS best_moves,
+            MIN(a.backtracks)  AS best_backtracks,
+            COUNT(*)           AS attempt_count,
+            MAX(a.created_at)  AS last_attempt_at
+        FROM attempts a
+        JOIN users u ON u.user_id = a.user_id
+        WHERE a.seed = {placeholder}
+          AND a.size = {placeholder}
+          AND a.difficulty = {placeholder}
+          AND a.solved = 1
+          AND a.is_public = 1
+        GROUP BY a.user_id, u.display_name
+        ORDER BY best_ms ASC
+        LIMIT {placeholder}
+    """, (seed, size, difficulty, limit))
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+
+def leaderboard_daily(conn, backend, placeholder, date_str=None, limit=50):
+    """
+    Today's daily puzzle leaderboard. Returns the daily puzzle metadata
+    plus the leaderboard rows.
+    """
+    daily = get_or_create_daily(conn, backend, placeholder, date_str)
+    if daily is None:
+        return {'puzzle': None, 'rows': []}
+    rows = leaderboard_puzzle(
+        conn, backend, placeholder,
+        daily['seed'], daily['size'], daily['difficulty'], limit
+    )
+    return {'puzzle': daily, 'rows': rows}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Global aggregates + personal insights (phase 3)
+# ═════════════════════════════════════════════════════════════════════════
+
+def global_aggregates(conn, backend, placeholder, size=None, difficulty=None):
+    """
+    Median/mean times and counts, optionally filtered to one (size, difficulty).
+    SQLite doesn't have a native MEDIAN function — we compute approximate
+    percentiles in Python after pulling the durations. For low volume this
+    is fine; for high volume, swap to a streaming-quantile approach or use
+    Postgres's percentile_cont.
+
+    Includes only public solved attempts so the numbers match what users
+    can verify on the per-puzzle leaderboards.
+    """
+    where_parts = ["solved = 1", "is_public = 1"]
+    params = []
+    if size is not None:
+        where_parts.append(f"size = {placeholder}")
+        params.append(size)
+    if difficulty is not None:
+        where_parts.append(f"difficulty = {placeholder}")
+        params.append(difficulty)
+    where = " AND ".join(where_parts)
+
+    cur = cursor(conn, backend)
+    cur.execute(f"""
+        SELECT duration_ms, moves, backtracks
+        FROM attempts
+        WHERE {where}
+        ORDER BY duration_ms ASC
+    """, params)
+    rows = cur.fetchall()
+    cur.close()
+
+    durations = [r['duration_ms'] for r in rows if r['duration_ms']]
+    if not durations:
+        return {
+            'count': 0, 'median_ms': None, 'p25_ms': None, 'p75_ms': None,
+            'fastest_ms': None, 'slowest_ms': None,
+            'mean_moves': None, 'mean_backtracks': None,
+        }
+
+    n = len(durations)
+    def pct(p):
+        # nearest-rank percentile, conservative for small N
+        idx = max(0, min(n - 1, int(round((p / 100.0) * (n - 1)))))
+        return durations[idx]
+
+    moves = [r['moves'] for r in rows if r['moves'] is not None]
+    bts = [r['backtracks'] for r in rows if r['backtracks'] is not None]
+
+    return {
+        'count': n,
+        'median_ms': pct(50),
+        'p25_ms': pct(25),
+        'p75_ms': pct(75),
+        'fastest_ms': durations[0],
+        'slowest_ms': durations[-1],
+        'mean_moves': round(sum(moves) / len(moves), 1) if moves else None,
+        'mean_backtracks': round(sum(bts) / len(bts), 2) if bts else None,
+    }
+
+
+def personal_insights(conn, backend, placeholder, user_id):
+    """
+    Bring back a user's own attempts grouped by useful slices so they can
+    see "their best time when X". Returns a structured summary.
+
+    Note: uses the user's OWN data only, not aggregates. Doesn't require
+    share_lifestyle_in_aggregate — they're looking at themselves.
+    """
+    cur = cursor(conn, backend)
+    cur.execute(f"""
+        SELECT * FROM attempts
+        WHERE user_id = {placeholder} AND solved = 1
+        ORDER BY started_at DESC
+    """, (user_id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+
+    if not rows:
+        return {'total_solved': 0, 'slices': {}}
+
+    # Slices we compute by default
+    slice_cols = [
+        'difficulty', 'size',
+        'sleep_quality_desc', 'last_stimulant_desc',
+        'weather_condition',
+    ]
+    slices = {}
+    for col in slice_cols:
+        groups = {}
+        for r in rows:
+            key = r.get(col)
+            if key is None or key == '':
+                continue
+            groups.setdefault(key, []).append(r['duration_ms'])
+        if not groups:
+            continue
+        slices[col] = {
+            k: {
+                'count': len(v),
+                'median_ms': sorted(v)[len(v) // 2] if v else None,
+                'best_ms': min(v) if v else None,
+            }
+            for k, v in groups.items()
+        }
+
+    return {
+        'total_solved': len(rows),
+        'slices': slices,
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# General insights slicer (phase 4)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# THE distinctive endpoint: ask any sliceable column × any metric, with a
+# minimum-samples guard so single attempts can't masquerade as insights.
+#
+# Critical privacy filter: any slice over a LIFESTYLE_COLUMN only includes
+# attempts from users who set share_lifestyle_in_aggregate = 1. Environmental
+# slices (weather, location) don't need that flag — they're covered by
+# basic ToS acceptance.
+#
+# Examples:
+#   slice_by=last_stimulant_desc, metric=median_ms, size=6, difficulty=tricky
+#   → { "coffee": 145000, "tea": 178000, "none": 192000 }
+#
+#   slice_by=weather_condition, metric=median_ms, difficulty=knotty
+#   → { "clear": 187000, "rain": 214000, "partly cloudy": 195000 }
+
+ALLOWED_METRICS = {'median_ms', 'mean_ms', 'best_ms', 'count', 'mean_backtracks'}
+
+def insights_slice(conn, backend, placeholder,
+                   slice_by, metric='median_ms',
+                   size=None, difficulty=None, min_samples=20,
+                   verified_env_only=False):
+    """
+    Group public solved attempts by `slice_by` column and compute `metric`
+    for each group. Drops groups with fewer than min_samples rows.
+    """
+    if slice_by not in SLICEABLE_COLUMNS:
+        raise ValueError(
+            f"slice_by must be one of {sorted(SLICEABLE_COLUMNS)}, got {slice_by!r}"
+        )
+    if metric not in ALLOWED_METRICS:
+        raise ValueError(
+            f"metric must be one of {sorted(ALLOWED_METRICS)}, got {metric!r}"
+        )
+
+    where_parts = [
+        "a.solved = 1",
+        "a.is_public = 1",
+    ]
+    params = []
+
+    # Lifestyle slices require the user's consent flag.
+    if slice_by in LIFESTYLE_COLUMNS:
+        where_parts.append("u.share_lifestyle_in_aggregate = 1")
+
+    if verified_env_only:
+        where_parts.append("a.env_verified = 1")
+
+    if size is not None:
+        where_parts.append(f"a.size = {placeholder}")
+        params.append(size)
+    if difficulty is not None:
+        where_parts.append(f"a.difficulty = {placeholder}")
+        params.append(difficulty)
+
+    # Derived slices need a SQL expression instead of a column name.
+    # We use strftime for hour_of_day / day_of_week (SQLite syntax).
+    # For Postgres, this would be EXTRACT(...) — but for the PoC
+    # the derived slices are SQLite-only; on Postgres they degrade
+    # to NULL (and so get filtered out below).
+    if slice_by == 'hour_of_day' and backend == 'sqlite':
+        slice_expr = "CAST(strftime('%H', a.local_time_iso) AS INTEGER)"
+    elif slice_by == 'day_of_week' and backend == 'sqlite':
+        slice_expr = "CAST(strftime('%w', a.local_time_iso) AS INTEGER)"
+    else:
+        slice_expr = f"a.{slice_by}"
+
+    where_parts.append(f"{slice_expr} IS NOT NULL")
+    where = " AND ".join(where_parts)
+
+    cur = cursor(conn, backend)
+    cur.execute(f"""
+        SELECT {slice_expr} AS bucket, a.duration_ms, a.backtracks
+        FROM attempts a
+        JOIN users u ON u.user_id = a.user_id
+        WHERE {where}
+        ORDER BY bucket
+    """, params)
+    rows = cur.fetchall()
+    cur.close()
+
+    # Bucket and compute in Python (portable across both backends)
+    buckets = {}
+    for r in rows:
+        b = r['bucket']
+        if b == '' or b is None:
+            continue
+        buckets.setdefault(b, []).append(r)
+
+    results = {}
+    for b, group in buckets.items():
+        if len(group) < min_samples:
+            continue
+        durations = sorted([g['duration_ms'] for g in group if g['duration_ms']])
+        bts = [g['backtracks'] for g in group if g['backtracks'] is not None]
+        if not durations:
+            continue
+        if metric == 'median_ms':
+            results[str(b)] = durations[len(durations) // 2]
+        elif metric == 'mean_ms':
+            results[str(b)] = int(sum(durations) / len(durations))
+        elif metric == 'best_ms':
+            results[str(b)] = durations[0]
+        elif metric == 'count':
+            results[str(b)] = len(durations)
+        elif metric == 'mean_backtracks':
+            results[str(b)] = round(sum(bts) / len(bts), 2) if bts else None
+
+    return {
+        'slice_by': slice_by,
+        'metric': metric,
+        'min_samples': min_samples,
+        'size': size,
+        'difficulty': difficulty,
+        'verified_env_only': verified_env_only,
+        'buckets': results,
+        'total_rows_considered': len(rows),
+        'buckets_below_threshold': sum(
+            1 for g in buckets.values() if len(g) < min_samples
+        ),
+    }

@@ -1,0 +1,3707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Trace. — A Daily Path Puzzle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;0,9..144,900;1,9..144,400&family=JetBrains+Mono:wght@500;700&family=Albert+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<!-- sql.js: SQLite compiled to WebAssembly. Lets us run real SQL queries in
+     the browser, persisting the database to IndexedDB. ~1MB on first load
+     (cached by the browser thereafter). For true offline distribution, you
+     can inline the WASM as base64; see README for instructions. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<style>
+  :root {
+    --bg: #EFE7D5;
+    --paper: #FAF5E7;
+    --ink: #1C1813;
+    --ink-soft: #3B342A;
+    --rule: #C8BB9E;
+    --rule-soft: #E2D8BD;
+    --wall: #1C1813;
+    --accent: #D14A2B;
+    --accent-ink: #8C2A14;
+    --success: #2F6B4F;
+    --shadow: rgba(28, 24, 19, 0.12);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Albert Sans', system-ui, -apple-system, sans-serif;
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Paper grain */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 23% 31%, rgba(28,24,19,0.025) 1px, transparent 1.5px),
+      radial-gradient(circle at 71% 67%, rgba(28,24,19,0.02) 1px, transparent 1.5px),
+      radial-gradient(circle at 47% 12%, rgba(28,24,19,0.018) 1px, transparent 1.5px);
+    background-size: 4px 4px, 5px 5px, 7px 7px;
+    z-index: 0;
+    mix-blend-mode: multiply;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 28px 18px 48px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ───────────────────────────────────────── */
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 14px;
+    margin-bottom: 22px;
+    border-bottom: 1.5px solid var(--ink);
+  }
+
+  .masthead .left {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .masthead .right {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  .header { text-align: left; margin-bottom: 24px; }
+
+  .title {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: 'opsz' 144;
+    font-weight: 900;
+    font-size: clamp(64px, 17vw, 96px);
+    line-height: 0.85;
+    letter-spacing: -0.045em;
+    color: var(--ink);
+  }
+
+  .title .dot {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
+  }
+
+  .lede {
+    margin-top: 14px;
+    max-width: 32ch;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+  }
+
+  /* ── Meta bar ─────────────────────────────────────── */
+  .meta-bar {
+    display: grid;
+    grid-template-columns: 1fr 1px 1fr;
+    align-items: center;
+    padding: 12px 18px;
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    margin-bottom: 16px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .meta-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--rule);
+  }
+
+  .meta-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-cell.right { align-items: flex-end; }
+
+  .meta-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .meta-value {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .meta-value.solved { color: var(--success); }
+
+  /* ── Board ────────────────────────────────────────── */
+  .board-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 4px;
+    box-shadow: 6px 6px 0 var(--ink);
+    margin-bottom: 22px;
+    touch-action: none;
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+    overflow: hidden;
+  }
+
+  .board-wrap.solved {
+    box-shadow: 6px 6px 0 var(--success);
+    border-color: var(--success);
+  }
+
+  .grid {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    z-index: 1;
+  }
+
+  .cell {
+    position: relative;
+    border-right: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cell.last-row { border-bottom: none; }
+  .cell.last-col { border-right: none; }
+
+  /* Walls: drawn as thick interior borders */
+  .cell.wall-top    { box-shadow: inset 0  3px 0 0 var(--wall); }
+  .cell.wall-right  { box-shadow: inset -3px 0 0 0 var(--wall); }
+  .cell.wall-bottom { box-shadow: inset 0 -3px 0 0 var(--wall); }
+  .cell.wall-left   { box-shadow: inset 3px 0 0 0 var(--wall); }
+  /* Combine multiple walls via multiple shadows */
+  .cell.wall-top.wall-right    { box-shadow: inset 0 3px 0 0 var(--wall), inset -3px 0 0 0 var(--wall); }
+  .cell.wall-top.wall-bottom   { box-shadow: inset 0 3px 0 0 var(--wall), inset 0 -3px 0 0 var(--wall); }
+  .cell.wall-top.wall-left     { box-shadow: inset 0 3px 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-right.wall-bottom { box-shadow: inset -3px 0 0 0 var(--wall), inset 0 -3px 0 0 var(--wall); }
+  .cell.wall-right.wall-left   { box-shadow: inset -3px 0 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-bottom.wall-left  { box-shadow: inset 0 -3px 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-top.wall-right.wall-bottom { box-shadow: inset 0 3px 0 0 var(--wall), inset -3px 0 0 0 var(--wall), inset 0 -3px 0 0 var(--wall); }
+  .cell.wall-top.wall-right.wall-left   { box-shadow: inset 0 3px 0 0 var(--wall), inset -3px 0 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-top.wall-bottom.wall-left  { box-shadow: inset 0 3px 0 0 var(--wall), inset 0 -3px 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-right.wall-bottom.wall-left { box-shadow: inset -3px 0 0 0 var(--wall), inset 0 -3px 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+  .cell.wall-top.wall-right.wall-bottom.wall-left { box-shadow: inset 0 3px 0 0 var(--wall), inset -3px 0 0 0 var(--wall), inset 0 -3px 0 0 var(--wall), inset 3px 0 0 0 var(--wall); }
+
+  .number {
+    position: relative;
+    z-index: 3;
+    width: 72%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--paper);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-variation-settings: 'opsz' 144;
+    font-size: clamp(15px, 4.5vw, 22px);
+    pointer-events: none;
+    line-height: 1;
+    box-shadow: 0 2px 0 rgba(28,24,19,0.18);
+  }
+
+  .number.start {
+    background: var(--accent);
+    color: var(--paper);
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  @keyframes celebrate {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.18); }
+    65%  { transform: scale(0.95); }
+    100% { transform: scale(1); }
+  }
+  .board-wrap.solved .number {
+    animation: celebrate 0.55s ease;
+    animation-delay: calc(var(--idx, 0) * 70ms);
+  }
+
+  /* ── Controls ─────────────────────────────────────── */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1.4fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    padding: 13px 6px;
+    background: var(--paper);
+    color: var(--ink);
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: transform 0.08s ease, background 0.15s ease, color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn:active { transform: translate(1px, 1px); }
+
+  .btn.primary {
+    background: var(--accent);
+    color: var(--paper);
+    border-color: var(--accent);
+  }
+  .btn.primary:hover { background: var(--ink); border-color: var(--ink); }
+
+  /* ── Settings ─────────────────────────────────────── */
+  .settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding: 12px 16px;
+    background: var(--paper);
+    border: 1px dashed var(--rule);
+    border-radius: 2px;
+  }
+
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .setting select {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid var(--ink);
+    color: var(--ink);
+    padding: 2px 16px 2px 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%231C1813' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0 center;
+  }
+
+  .setting select:focus { outline: none; }
+
+  /* ── Footer ───────────────────────────────────────── */
+  .footer {
+    margin-top: auto;
+    padding-top: 32px;
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+  .footer .rule {
+    display: block;
+    width: 40px;
+    height: 1px;
+    background: var(--rule);
+    margin: 0 auto 12px;
+  }
+
+  /* ── Toast (solved) ───────────────────────────────── */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(140%);
+    background: var(--ink);
+    color: var(--paper);
+    padding: 14px 22px;
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    box-shadow: 0 8px 24px rgba(28,24,19,0.25);
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 100;
+    pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast .accent { color: var(--accent); }
+
+  /* ── Loader (during generation) ───────────────────── */
+  .board-wrap.loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    z-index: 10;
+    display: flex;
+  }
+  .loader {
+    position: absolute;
+    inset: 0;
+    z-index: 11;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    color: var(--ink-soft);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .board-wrap.loading .loader { display: flex; }
+  .loader .spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--rule);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Seed strip ───────────────────────────────────── */
+  .seed-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: transparent;
+    border-top: 1px dashed var(--rule);
+    border-bottom: 1px dashed var(--rule);
+  }
+  .seed-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+  .seed-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .seed-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .diff-badge {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .share-btn {
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    padding: 6px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .share-btn:hover { background: var(--ink); color: var(--paper); }
+  .share-btn.copied { background: var(--success); border-color: var(--success); color: var(--paper); }
+
+  /* ── Stats link in masthead ───────────────────────── */
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: var(--ink-soft);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-thickness: 0.5px;
+    text-underline-offset: 3px;
+  }
+  .link-btn:hover { color: var(--accent); }
+
+  /* ── Modal infrastructure ─────────────────────────── */
+  /* Full-screen overlay with a centred card. Two modals share this style:
+     #logModal (save-attempt form) and #statsModal (list of past attempts). */
+  .modal-bg {
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 24, 19, 0.55);
+    z-index: 200;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    overflow-y: auto;
+    animation: fade-in 0.2s ease;
+  }
+  .modal-bg[hidden] { display: none; }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 4px;
+    box-shadow: 6px 6px 0 var(--ink);
+    max-width: 520px;
+    width: 100%;
+    padding: 24px;
+    margin: auto 0;
+    animation: slide-up 0.28s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  @keyframes slide-up {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+
+  .modal-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .modal-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 18px;
+  }
+
+  /* ── Metric strip (read-only summary at top of log modal) ─── */
+  .metric-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .metric-cell {
+    padding: 10px 8px;
+    text-align: center;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--bg);
+  }
+  .metric-cell:last-child { border-right: none; }
+  .metric-l {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .metric-v {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Environmental block (location, weather, sunrise/sunset) ─── */
+  .env-block {
+    background: var(--bg);
+    border: 1px dashed var(--rule);
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    line-height: 1.55;
+  }
+  .env-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 2px 0;
+  }
+  .env-l {
+    color: var(--ink-soft);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    flex: 0 0 80px;
+  }
+  .env-v {
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .env-detect-btn {
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    padding: 7px 12px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .env-detect-btn:hover { background: var(--accent); }
+  .env-detect-btn[disabled] { opacity: 0.5; cursor: wait; }
+
+  /* ── Optional self-report form ──────────────────────── */
+  .form-section { margin-bottom: 18px; }
+  .form-section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .form-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .form-sel-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .form-sel {
+    flex: 1 1 0;
+    min-width: 80px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 5px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' stroke='%231C1813' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    padding-right: 22px;
+  }
+  .form-sel:focus { outline: 1px solid var(--accent); }
+
+  /* ── Modal actions ─────────────────────────────────── */
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule-soft);
+  }
+
+  /* ── Stats panel ───────────────────────────────────── */
+  .stats-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--rule);
+    margin-bottom: 18px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .stat-cell {
+    padding: 12px 8px;
+    text-align: center;
+    border-right: 1px solid var(--rule);
+    background: var(--bg);
+  }
+  .stat-cell:last-child { border-right: none; }
+  .stat-v {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-l {
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .attempts-list {
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    border: 1px solid var(--rule-soft);
+    border-radius: 2px;
+  }
+  .attempt-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 12px;
+  }
+  .attempt-row:last-child { border-bottom: none; }
+  .attempt-row:nth-child(even) { background: var(--bg); }
+  .attempt-when {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .attempt-main {
+    font-family: 'Fraunces', serif;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .attempt-main .seed { font-style: italic; color: var(--ink-soft); font-size: 11px; }
+  .attempt-time {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .attempt-empty {
+    padding: 30px 16px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+  }
+
+  /* ── Hint cell highlight ──────────────────────────────── */
+  /* Pulsing outline on the cell to visit next. Uses outline (not
+     box-shadow) so it doesn't conflict with the wall box-shadows. */
+  @keyframes hint-pulse {
+    0%, 100% { outline-color: var(--accent); }
+    50%       { outline-color: transparent; }
+  }
+  .cell.hint {
+    outline: 2.5px solid var(--accent);
+    outline-offset: -4px;
+    animation: hint-pulse 0.85s ease-in-out infinite;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* ── Hint button — right-to-left cooldown sweep ────────── */
+  /* The ::before pseudo is the sweep indicator. When .cooling is
+     present it animates from width:0 (at right) → width:100%, filling
+     the button with the active colour from right to left. The label
+     <span> sits above it via z-index so it stays legible. */
+  @keyframes hint-sweep {
+    from { width: 0%; }
+    to   { width: 100%; }
+  }
+  @keyframes hint-wrong-shake {
+    0%   { transform: translateX(0); }
+    20%  { transform: translateX(-4px); }
+    40%  { transform: translateX(4px); }
+    60%  { transform: translateX(-3px); }
+    80%  { transform: translateX(2px); }
+    100% { transform: translateX(0); }
+  }
+
+  #hintBtn {
+    position: relative;
+    overflow: hidden;
+  }
+  #hintBtn .hint-label {
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  /* The fill element */
+  #hintBtn::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 0%;
+    background: var(--accent);
+    z-index: 0;
+  }
+  /* Cooldown: sweep plays, button is inert */
+  #hintBtn.cooling {
+    cursor: not-allowed;
+    pointer-events: none;
+    border-color: var(--accent);
+    color: var(--accent);    /* label takes accent colour while charging */
+  }
+  #hintBtn.cooling::before {
+    animation: hint-sweep 30s linear forwards;
+  }
+  /* Wrong-path feedback: brief shake, no cooldown */
+  #hintBtn.wrong {
+    animation: hint-wrong-shake 0.35s ease;
+  }
+  .toast-cta {
+    margin-left: 8px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(250, 245, 231, 0.3);
+    cursor: pointer;
+    pointer-events: auto;
+    color: var(--accent);
+  }
+  .toast-cta:hover { color: var(--paper); }
+
+  /* ─────────────────────────────────────────────────────────
+     PHASE 1-4 ADDITIONS: onboarding, settings, leaderboard
+     ───────────────────────────────────────────────────────── */
+
+  /* Onboarding overlay — non-dismissable until ToS accepted */
+  .modal-bg.gated { background: rgba(28, 24, 19, 0.85); }
+  .modal-tos-body {
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 12px 14px;
+    margin: 8px 0 14px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-family: 'Albert Sans', sans-serif;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink);
+    white-space: pre-wrap;
+  }
+  .modal-faq {
+    margin: 0 0 14px;
+    font-family: 'Albert Sans', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  .modal-faq details {
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 6px 0;
+  }
+  .modal-faq details:last-child { border-bottom: none; }
+  .modal-faq summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--ink);
+    padding: 4px 0;
+    list-style: none;
+  }
+  .modal-faq summary::-webkit-details-marker { display: none; }
+  .modal-faq summary::before { content: '▸ '; color: var(--accent); }
+  .modal-faq details[open] summary::before { content: '▾ '; }
+  .modal-faq p { margin: 6px 0 8px; padding-left: 14px; }
+
+  /* Consent checklist — used by both onboarding and settings */
+  .consent-list { margin: 0 0 14px; }
+  .consent-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .consent-row:last-child { border-bottom: none; }
+  .consent-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin-top: 3px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .consent-row label { cursor: pointer; }
+  .consent-row .consent-h {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .consent-row .consent-d {
+    font-family: 'Albert Sans', sans-serif;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .consent-row.required .consent-h::after {
+    content: ' · required';
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* Display-name field */
+  .name-input-row {
+    margin-bottom: 14px;
+  }
+  .name-input-row label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 4px;
+  }
+  .name-input-row input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: 'Fraunces', serif;
+    font-size: 16px;
+    padding: 7px 10px;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    border-radius: 2px;
+  }
+  .name-input-row input:focus { outline: 1px solid var(--accent); }
+
+  /* Primary button disabled state */
+  .btn.primary[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  .btn.danger {
+    background: var(--paper);
+    color: #a01818;
+    border: 1px solid #a01818;
+  }
+  .btn.danger:hover { background: #a01818; color: var(--paper); }
+
+  /* Leaderboard tabs */
+  .lb-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 14px;
+    gap: 0;
+  }
+  .lb-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 8px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .lb-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .lb-tab:hover { color: var(--ink); }
+
+  .lb-pane { min-height: 240px; }
+  .lb-puzzle-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-radius: 2px;
+  }
+
+  .lb-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    padding: 8px 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 13px;
+  }
+  .lb-row:nth-child(even) { background: var(--bg); }
+  .lb-row:last-child { border-bottom: none; }
+  .lb-rank {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-align: right;
+  }
+  .lb-rank.top {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .lb-name {
+    font-family: 'Fraunces', serif;
+    color: var(--ink);
+  }
+  .lb-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+    margin-top: 1px;
+  }
+  .lb-time {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    font-size: 15px;
+  }
+  .lb-empty {
+    padding: 30px 16px;
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    color: var(--ink-soft);
+  }
+
+  /* Aggregate display */
+  .agg-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--rule);
+    margin-bottom: 12px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .agg-grid .stat-cell { border-right: 1px solid var(--rule); }
+  .agg-grid .stat-cell:last-child { border-right: none; }
+
+  /* Insights slicer controls */
+  .insight-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px;
+    background: var(--bg);
+    border-radius: 2px;
+  }
+  .insight-controls label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .insight-controls select.form-sel { width: 100%; }
+  .insight-note {
+    font-family: 'Albert Sans', sans-serif;
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-style: italic;
+    margin: 8px 0;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-left: 2px solid var(--accent);
+  }
+
+  .insight-bar-row {
+    display: grid;
+    grid-template-columns: 90px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+  .insight-bar-bg {
+    background: var(--bg);
+    height: 16px;
+    border-radius: 2px;
+    overflow: hidden;
+    border: 1px solid var(--rule-soft);
+  }
+  .insight-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    opacity: 0.6;
+  }
+  .insight-bar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink);
+    text-transform: capitalize;
+  }
+  .insight-bar-v {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+  }
+
+  /* Personal insights table */
+  .personal-slice {
+    margin-bottom: 14px;
+  }
+  .personal-slice h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 8px 0 4px;
+  }
+  .personal-slice .insight-bar-row { padding: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="masthead">
+    <div class="left">Vol. I &nbsp;·&nbsp; No. 001</div>
+    <div class="right">
+      <span id="dateLine">A Path Puzzle</span>
+      &nbsp;·&nbsp;
+      <button class="link-btn" id="dailyBtn">today's</button>
+      &nbsp;·&nbsp;
+      <button class="link-btn" id="leaderboardBtn">leaderboard</button>
+      &nbsp;·&nbsp;
+      <button class="link-btn" id="statsBtn">attempts</button>
+      &nbsp;·&nbsp;
+      <button class="link-btn" id="settingsBtn">settings</button>
+    </div>
+  </div>
+
+  <header class="header">
+    <h1 class="title">Trace<span class="dot">.</span></h1>
+    <p class="lede">One continuous line. Visit every cell. Touch the numbers in order.</p>
+  </header>
+
+  <div class="meta-bar">
+    <div class="meta-cell">
+      <span class="meta-label">Progress</span>
+      <span class="meta-value" id="progress">0 / 0</span>
+    </div>
+    <div class="meta-divider"></div>
+    <div class="meta-cell right">
+      <span class="meta-label">Status</span>
+      <span class="meta-value" id="status">Begin at 1</span>
+    </div>
+  </div>
+
+  <div class="board-wrap" id="boardWrap">
+    <div class="grid" id="grid"></div>
+    <svg class="overlay" id="overlay" preserveAspectRatio="none"></svg>
+    <div class="loader"><div class="spinner"></div><div id="loaderMsg">Composing…</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="undoBtn">Undo</button>
+    <button class="btn" id="clearBtn">Clear</button>
+    <button class="btn" id="hintBtn"><span class="hint-label">Hint</span></button>
+    <button class="btn primary" id="newBtn">New Puzzle</button>
+  </div>
+
+  <div class="settings">
+    <div class="setting">
+      <label for="sizeSel">Grid</label>
+      <select id="sizeSel">
+        <option value="5">5 × 5</option>
+        <option value="6" selected>6 × 6</option>
+        <option value="7">7 × 7</option>
+        <option value="8">8 × 8</option>
+      </select>
+    </div>
+    <div class="setting">
+      <label for="diffSel">Difficulty</label>
+      <select id="diffSel">
+        <option value="gentle">Gentle</option>
+        <option value="tricky" selected>Tricky</option>
+        <option value="knotty">Knotty</option>
+        <option value="fiendish">Fiendish</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="seed-strip">
+    <div class="seed-left">
+      <span class="seed-label">Seed</span>
+      <span class="seed-value" id="seedValue">—</span>
+      <span class="diff-badge" id="diffBadge">tricky</span>
+    </div>
+    <button class="share-btn" id="shareBtn">Copy Link</button>
+  </div>
+
+  <footer class="footer">
+    <span class="rule"></span>
+    A Hamiltonian path puzzle. Press &amp; drag from the red dot.
+  </footer>
+</div>
+
+<div class="toast" id="toast">Solved <span class="accent">·</span> Well drawn<span class="toast-cta" id="toastLogCta">Log →</span></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     LOG ATTEMPT MODAL
+     Opens after the user solves a puzzle. Shows the play metrics they just
+     achieved, optionally fetches environmental context (location, weather,
+     sunrise/sunset), and lets them tag the attempt with self-reported state
+     (last meal, stimulants, sleep, etc.) for later analysis.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-bg" id="logModal" hidden>
+  <div class="modal">
+    <div class="modal-eyebrow">Solved</div>
+    <h2 class="modal-title">Log this attempt</h2>
+
+    <!-- Play metrics — populated by the JS when modal opens -->
+    <div class="metric-strip">
+      <div class="metric-cell"><span class="metric-l">Time</span><span class="metric-v" id="logTime">—</span></div>
+      <div class="metric-cell"><span class="metric-l">Moves</span><span class="metric-v" id="logMoves">—</span></div>
+      <div class="metric-cell"><span class="metric-l">Backtracks</span><span class="metric-v" id="logBacktracks">—</span></div>
+      <div class="metric-cell"><span class="metric-l">Undos</span><span class="metric-v" id="logUndos">—</span></div>
+    </div>
+
+    <!-- Environmental context: starts collapsed with a "Detect" button.
+         When the user clicks, we ask the browser for geolocation, then
+         look up weather + sunrise from Open-Meteo and a label from
+         BigDataCloud. All three are free, key-less, CORS-friendly APIs. -->
+    <div class="env-block" id="envBlock">
+      <!-- populated by renderEnvBlock() -->
+    </div>
+
+    <!-- Optional self-report fields. Defaults to "—" (unanswered) for everything;
+         user fills in whichever feel relevant. Built from FORM_SCHEMA in JS so
+         the dropdown options live in one place and are easy to edit. -->
+    <div class="form-section">
+      <div class="form-section-title">Optional · how were you?</div>
+      <div id="logFormRows"><!-- populated by renderLogForm() --></div>
+    </div>
+
+    <!-- Per-attempt visibility override. Defaults from Profile.publicByDefault().
+         Only matters if the page is served by the leaderboard server. -->
+    <div class="consent-row" style="margin: 8px 0 0; padding: 8px 0; border-top: 1px solid var(--rule-soft); border-bottom: none;">
+      <input type="checkbox" id="logIsPublic" />
+      <label for="logIsPublic">
+        <div class="consent-h" style="font-size: 12px;">Make this attempt public</div>
+        <div class="consent-d">Shows on per-puzzle and daily leaderboards under your display name. Override of your default.</div>
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="logSkipBtn">Skip</button>
+      <button class="btn primary" id="logSaveBtn">Save Attempt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     STATS MODAL
+     Reachable from the masthead "attempts" link. Shows a summary of saved
+     attempts and a scrollable list of the most recent ones, with an
+     "Export JSON" button for taking your data away.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-bg" id="statsModal" hidden>
+  <div class="modal">
+    <div class="modal-eyebrow">Logbook</div>
+    <h2 class="modal-title">Your attempts</h2>
+    <div class="stats-summary" id="statsSummary">
+      <!-- populated by renderStats() -->
+    </div>
+    <div class="attempts-list" id="attemptsList">
+      <!-- populated by renderStats() -->
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="exportBtn">Export JSON</button>
+      <button class="btn primary" id="statsCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     ONBOARDING MODAL — gates the puzzle until ToS accepted
+     Cannot be dismissed by clicking outside or pressing Escape; the only
+     way past is to tick the required "I accept" box and click Continue.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-bg gated" id="onboardingModal" hidden>
+  <div class="modal">
+    <div class="modal-eyebrow">Welcome</div>
+    <h2 class="modal-title">Before you play</h2>
+
+    <p style="font-family: 'Fraunces', serif; font-size: 14px; color: var(--ink-soft); margin: 0 0 12px; line-height: 1.5;">
+      Trace records your puzzle attempts so you can track how you do over time
+      and contribute to anonymous aggregate statistics. We never collect your
+      email or name — just an anonymous random ID held in your browser.
+    </p>
+
+    <div class="modal-tos-body" id="onboardingTosBody">
+      <!-- populated by loading /api/tos OR from embedded fallback -->
+    </div>
+
+    <div class="modal-faq" id="onboardingFaq">
+      <!-- populated by FAQ items -->
+    </div>
+
+    <div class="name-input-row">
+      <label for="onbName">Display name (optional)</label>
+      <input type="text" id="onbName" maxlength="40" placeholder="e.g. PathFinder42" />
+    </div>
+
+    <div class="consent-list">
+      <div class="consent-row required">
+        <input type="checkbox" id="onbAcceptTos" />
+        <label for="onbAcceptTos">
+          <div class="consent-h">I accept the Terms above</div>
+          <div class="consent-d">Required to play. Lets us count your basic play stats (times, moves) in anonymous aggregates.</div>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input type="checkbox" id="onbPublicDefault" />
+        <label for="onbPublicDefault">
+          <div class="consent-h">Show me on public leaderboards</div>
+          <div class="consent-d">Your display name and times appear on per-puzzle and daily-challenge leaderboards. You can override per-attempt.</div>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input type="checkbox" id="onbLifestylePublic" />
+        <label for="onbLifestylePublic">
+          <div class="consent-h">Allow my lifestyle data to be shown publicly</div>
+          <div class="consent-d">Things like "last meal", "stimulants", "sleep" can appear alongside your display name. Off by default.</div>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input type="checkbox" id="onbLifestyleAgg" />
+        <label for="onbLifestyleAgg">
+          <div class="consent-h">Include my lifestyle data in anonymous aggregates</div>
+          <div class="consent-d">Lets queries like "median time when caffeinated" include your data, with at least 20 contributors before any group is shown. Your identity is never attached.</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn primary" id="onbContinueBtn" disabled>Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SETTINGS MODAL
+     Same controls as onboarding plus erase-data and a recap of current ID.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-bg" id="settingsModal" hidden>
+  <div class="modal">
+    <div class="modal-eyebrow">Preferences</div>
+    <h2 class="modal-title">Settings</h2>
+
+    <div class="env-block" id="settingsIdBlock">
+      <!-- shows anonymous ID and ToS version -->
+    </div>
+
+    <div class="name-input-row">
+      <label for="setName">Display name</label>
+      <input type="text" id="setName" maxlength="40" placeholder="(unset)" />
+    </div>
+
+    <div class="consent-list">
+      <div class="consent-row">
+        <input type="checkbox" id="setPublicDefault" />
+        <label for="setPublicDefault">
+          <div class="consent-h">Show me on public leaderboards</div>
+          <div class="consent-d">Your display name and times on per-puzzle and daily-challenge leaderboards.</div>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input type="checkbox" id="setLifestylePublic" />
+        <label for="setLifestylePublic">
+          <div class="consent-h">Allow my lifestyle data to be shown publicly</div>
+          <div class="consent-d">Meals, sleep, stimulants etc. can appear alongside your display name.</div>
+        </label>
+      </div>
+      <div class="consent-row">
+        <input type="checkbox" id="setLifestyleAgg" />
+        <label for="setLifestyleAgg">
+          <div class="consent-h">Include my lifestyle data in anonymous aggregates</div>
+          <div class="consent-d">Used for "median time when caffeinated" style insights, with a 20-contributor minimum.</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn danger" id="settingsEraseBtn">Erase all my data</button>
+      <div style="flex: 1"></div>
+      <button class="btn" id="settingsCloseBtn">Close</button>
+      <button class="btn primary" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     LEADERBOARD MODAL — tabbed view: This Puzzle / Daily / Global / Insights
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-bg" id="leaderboardModal" hidden>
+  <div class="modal" style="max-width: 600px;">
+    <div class="modal-eyebrow">Standings</div>
+    <h2 class="modal-title">Leaderboard</h2>
+
+    <div class="lb-tabs">
+      <button class="lb-tab active" data-tab="puzzle">This puzzle</button>
+      <button class="lb-tab" data-tab="daily">Today's</button>
+      <button class="lb-tab" data-tab="global">Global</button>
+      <button class="lb-tab" data-tab="personal">Personal</button>
+      <button class="lb-tab" data-tab="insights">Insights</button>
+    </div>
+
+    <div class="lb-pane" id="lbPane">
+      <!-- rendered by tab switcher -->
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn primary" id="lbCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─── Configuration ──────────────────────────────────
+let SIZE = 6;
+let DIFFICULTY = 'tricky';
+let SEED = '';
+
+const DIFFS = ['gentle', 'tricky', 'knotty', 'fiendish'];
+
+// Waypoint count per difficulty, scaled by grid area.
+// Fewer waypoints = more freedom = harder for both solver and human.
+// Larger grids get a slightly higher floor so uniqueness enforcement
+// stays tractable.
+function targetWaypoints(diff, area) {
+  const ratios = { gentle: 0.22, tricky: 0.16, knotty: 0.12, fiendish: 0.095 };
+  return Math.max(4, Math.round(area * ratios[diff]));
+}
+
+// Difficulty band thresholds (solver nodes), per grid size.
+// Calibrated against actual generation distributions — what a 5×5
+// can produce is fundamentally less spread out than what an 8×8 can,
+// so a single formula misrepresents both ends.
+function bandsForArea(area) {
+  const table = {
+    25: { gentle: [0, 100],   tricky: [100, 200],     knotty: [200, 500],      fiendish: [500, Infinity] },
+    36: { gentle: [0, 300],   tricky: [300, 700],     knotty: [700, 1500],     fiendish: [1500, Infinity] },
+    49: { gentle: [0, 700],   tricky: [700, 1800],    knotty: [1800, 4500],    fiendish: [4500, Infinity] },
+    64: { gentle: [0, 4000],  tricky: [4000, 12000],  knotty: [12000, 35000],  fiendish: [35000, Infinity] }
+  };
+  if (table[area]) return table[area];
+  // Fallback for unusual sizes — interpolate via a power law.
+  const u = Math.pow(area, 2.2);
+  return { gentle: [0, u*0.05], tricky: [u*0.05, u*0.2], knotty: [u*0.2, u*1.0], fiendish: [u*1.0, Infinity] };
+}
+
+function classify(nodes, area) {
+  const b = bandsForArea(area);
+  for (const d of DIFFS) if (nodes >= b[d][0] && nodes < b[d][1]) return d;
+  return 'fiendish';
+}
+
+// ─── State ──────────────────────────────────────────
+let solution = [];      // canonical Hamiltonian path
+let waypoints = [];     // [{r, c, n}, ...] in order
+let walls = new Set();  // canonical "r1,c1|r2,c2"
+let path = [];          // user's drawn path
+let drawing = false;
+let solved = false;
+let lastNodes = 0;      // solver work for current puzzle
+
+// ─── DOM ────────────────────────────────────────────
+const grid       = document.getElementById('grid');
+const overlay    = document.getElementById('overlay');
+const boardWrap  = document.getElementById('boardWrap');
+const progressEl = document.getElementById('progress');
+const statusEl   = document.getElementById('status');
+const toastEl    = document.getElementById('toast');
+const seedValEl  = document.getElementById('seedValue');
+const diffBadgeEl = document.getElementById('diffBadge');
+const loaderMsg  = document.getElementById('loaderMsg');
+
+// ─── Seeded PRNG (xmur3 string-hash → Mulberry32) ───
+// Deterministic, fast, good enough for puzzle gen.
+function xmur3(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return function() {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  };
+}
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeRNG(seedStr) {
+  const h = xmur3(String(seedStr));
+  return mulberry32(h());
+}
+let rng = Math.random; // replaced per-puzzle
+
+function randomSeedString() {
+  // 6 base36 chars from crypto if available, otherwise from Math.random.
+  const N = 6;
+  if (window.crypto && crypto.getRandomValues) {
+    const arr = new Uint32Array(2);
+    crypto.getRandomValues(arr);
+    return (arr[0].toString(36) + arr[1].toString(36)).slice(0, N);
+  }
+  return Math.random().toString(36).slice(2, 2 + N);
+}
+
+// ─── Tiny utilities ─────────────────────────────────
+const k = (r, c) => r + ',' + c;
+const wk = (r1, c1, r2, c2) => {
+  if (r1 < r2 || (r1 === r2 && c1 < c2)) return r1 + ',' + c1 + '|' + r2 + ',' + c2;
+  return r2 + ',' + c2 + '|' + r1 + ',' + c1;
+};
+const isAdj = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) === 1;
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (rng() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function neighbors(r, c) {
+  const out = [];
+  if (r > 0)        out.push([r - 1, c]);
+  if (r < SIZE - 1) out.push([r + 1, c]);
+  if (c > 0)        out.push([r, c - 1]);
+  if (c < SIZE - 1) out.push([r, c + 1]);
+  return out;
+}
+
+// ─── Hamiltonian path (DFS + Warnsdorff) ────────────
+function generateHamiltonian() {
+  const total = SIZE * SIZE;
+  let start;
+  if (SIZE % 2 === 1) {
+    // Odd grid: start must be on majority checkerboard parity.
+    do { start = [(rng() * SIZE) | 0, (rng() * SIZE) | 0]; }
+    while ((start[0] + start[1]) % 2 !== 0);
+  } else {
+    start = [(rng() * SIZE) | 0, (rng() * SIZE) | 0];
+  }
+  const visited = new Set([k(start[0], start[1])]);
+  const p = [start];
+  const t0 = Date.now();
+  const TIMEOUT = 800;
+
+  function onwardCount(r, c) {
+    let n = 0;
+    for (const [nr, nc] of neighbors(r, c)) if (!visited.has(k(nr, nc))) n++;
+    return n;
+  }
+  function dfs() {
+    if (p.length === total) return true;
+    if (Date.now() - t0 > TIMEOUT) return false;
+    const [r, c] = p[p.length - 1];
+    const cands = [];
+    for (const n of neighbors(r, c)) if (!visited.has(k(n[0], n[1]))) cands.push(n);
+    shuffle(cands);
+    cands.sort((a, b) => onwardCount(a[0], a[1]) - onwardCount(b[0], b[1]));
+    for (const n of cands) {
+      const key = k(n[0], n[1]);
+      visited.add(key); p.push(n);
+      if (dfs()) return true;
+      p.pop(); visited.delete(key);
+    }
+    return false;
+  }
+  return dfs() ? p : null;
+}
+
+function pickWaypoints(sol, count) {
+  const N = Math.min(count, Math.floor(sol.length / 2));
+  const idx = [0];
+  for (let i = 1; i < N - 1; i++) {
+    const base = Math.round((i * (sol.length - 1)) / (N - 1));
+    const wiggle = Math.floor((rng() - 0.5) * 3);
+    let p = base + wiggle;
+    p = Math.max(idx[idx.length - 1] + 2, Math.min(sol.length - 2, p));
+    idx.push(p);
+  }
+  idx.push(sol.length - 1);
+  const uniq = [...new Set(idx)].sort((a, b) => a - b);
+  return uniq.map((p, i) => ({ r: sol[p][0], c: sol[p][1], n: i + 1 }));
+}
+
+// ─── Solver ─────────────────────────────────────────
+// Counts valid Hamiltonian paths (early-exit at maxCount).
+// Returns the first one or two found, plus node count.
+// Used both to verify uniqueness AND to estimate difficulty.
+function buildSolverData(wallSet) {
+  const N = SIZE * SIZE;
+  const isWp = new Int8Array(N); isWp.fill(-1);
+  for (const w of waypoints) isWp[w.r * SIZE + w.c] = w.n - 1;
+  const adj = [];
+  for (let i = 0; i < N; i++) {
+    const r = (i / SIZE) | 0, c = i % SIZE;
+    const a = [];
+    if (r > 0          && !wallSet.has(wk(r - 1, c, r, c))) a.push((r - 1) * SIZE + c);
+    if (r < SIZE - 1   && !wallSet.has(wk(r, c, r + 1, c))) a.push((r + 1) * SIZE + c);
+    if (c > 0          && !wallSet.has(wk(r, c - 1, r, c))) a.push(r * SIZE + c - 1);
+    if (c < SIZE - 1   && !wallSet.has(wk(r, c, r, c + 1))) a.push(r * SIZE + c + 1);
+    adj.push(a);
+  }
+  return { adj, isWp, N };
+}
+
+function solve(wallSet, maxCount, nodeCap) {
+  nodeCap = nodeCap || 200000;
+  const { adj, isWp, N } = buildSolverData(wallSet);
+  const startIdx = waypoints[0].r * SIZE + waypoints[0].c;
+  const visited = new Uint8Array(N);
+  visited[startIdx] = 1;
+  const cur = [startIdx];
+  let nextWp = 1;
+  let nodes = 0;
+  let count = 0;
+  let aborted = false;
+  const found = [];
+
+  // Reusable BFS scratch — avoids GC pressure inside the hot loop.
+  const seen = new Uint8Array(N);
+  const stack = new Int32Array(N);
+
+  // Pruning: if any unvisited cell is unreachable from `from` via
+  // remaining unvisited cells, this branch is dead. This single check
+  // makes 8×8 enumeration tractable.
+  function unvisitedReachableFrom(from) {
+    seen.fill(0);
+    let top = 0;
+    for (const v of adj[from]) {
+      if (!visited[v] && !seen[v]) { seen[v] = 1; stack[top++] = v; }
+    }
+    let cnt = 0;
+    while (top > 0) {
+      const x = stack[--top]; cnt++;
+      for (const y of adj[x]) {
+        if (!visited[y] && !seen[y]) { seen[y] = 1; stack[top++] = y; }
+      }
+    }
+    return cnt === (N - cur.length);
+  }
+
+  function dfs() {
+    if (aborted || count >= maxCount) return;
+    nodes++;
+    if (nodes > nodeCap) { aborted = true; return; }
+
+    if (cur.length === N) {
+      if (nextWp === waypoints.length) {
+        if (found.length < 2) found.push(cur.slice());
+        count++;
+      }
+      return;
+    }
+    const last = cur[cur.length - 1];
+    const opts = adj[last];
+    for (let i = 0; i < opts.length; i++) {
+      const next = opts[i];
+      if (visited[next]) continue;
+      const wIdx = isWp[next];
+      if (wIdx !== -1 && wIdx !== nextWp) continue;
+      visited[next] = 1;
+      cur.push(next);
+      let ok = true;
+      if (cur.length < N) ok = unvisitedReachableFrom(next);
+      if (ok) {
+        if (wIdx !== -1) nextWp++;
+        dfs();
+        if (wIdx !== -1) nextWp--;
+      }
+      cur.pop();
+      visited[next] = 0;
+      if (aborted || count >= maxCount) return;
+    }
+  }
+  dfs();
+  return { count, nodes, found, aborted };
+}
+
+// ─── Uniqueness enforcement ─────────────────────────
+// Find alternate solution; add a wall on an edge it uses
+// that the canonical doesn't. Repeat until unique.
+function enforceUniqueness(sol, cap) {
+  const solEdgeSet = new Set();
+  for (let i = 0; i < sol.length - 1; i++) {
+    const a = sol[i], b = sol[i + 1];
+    solEdgeSet.add(wk(a[0], a[1], b[0], b[1]));
+  }
+  const candidate = new Set(walls);
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const r = solve(candidate, 2, cap);
+    if (r.aborted) return null;
+    if (r.count <= 1) return candidate;
+    const altPath = pickAlternate(r.found, sol);
+    if (!altPath) return candidate;
+    let placed = false;
+    const idxs = [];
+    for (let i = 0; i < altPath.length - 1; i++) idxs.push(i);
+    shuffle(idxs);
+    for (const i of idxs) {
+      const a = altPath[i], b = altPath[i + 1];
+      const ar = (a / SIZE) | 0, ac = a % SIZE;
+      const br = (b / SIZE) | 0, bc = b % SIZE;
+      const ek = wk(ar, ac, br, bc);
+      if (!solEdgeSet.has(ek) && !candidate.has(ek)) {
+        candidate.add(ek);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return null;
+  }
+  return null;
+}
+
+function pickAlternate(found, sol) {
+  const solStr = sol.map(([r, c]) => r * SIZE + c).join(',');
+  for (const f of found) {
+    if (f.join(',') !== solStr) return f;
+  }
+  return null;
+}
+
+// ─── Full generation with difficulty targeting ──────
+// Try several sub-seeds. For each: generate path, pick waypoints,
+// enforce uniqueness, measure solver nodes. Keep the candidate
+// closest to target difficulty.
+function generateCandidate(subSeed, wpCount) {
+  rng = makeRNG(SEED + ':' + subSeed);
+  const sol = generateHamiltonian();
+  if (!sol) return null;
+  solution = sol;
+  waypoints = pickWaypoints(sol, wpCount);
+  walls = new Set();
+  // Solver cap scales nonlinearly with grid size since search space does.
+  const cap = Math.max(50000, SIZE * SIZE * 5000);
+  const uniqWalls = enforceUniqueness(sol, cap);
+  if (!uniqWalls) return null;
+  walls = uniqWalls;
+  // Final difficulty measure: solve to count nodes (already small after enforcement).
+  const r = solve(walls, 2, cap);
+  return {
+    sol, waypoints: waypoints.slice(), walls: new Set(walls),
+    nodes: r.nodes, aborted: r.aborted
+  };
+}
+
+function generateForDifficulty() {
+  const area = SIZE * SIZE;
+  const target = DIFFICULTY;
+  const baseWp = targetWaypoints(target, area);
+
+  // Larger grids cost more per attempt; bound total time spent.
+  const ATTEMPTS    = SIZE <= 6 ? 18 : SIZE === 7 ? 10 : 6;
+  const TIME_BUDGET = SIZE <= 6 ? 1800 : SIZE === 7 ? 2800 : 4000;
+
+  let best = null;
+  let bestScore = Infinity;
+  const t0 = Date.now();
+
+  for (let i = 0; i < ATTEMPTS; i++) {
+    if (best && Date.now() - t0 > TIME_BUDGET) break;
+    // Vary waypoint count slightly across attempts to broaden coverage.
+    const wpJitter = (i % 5) - 2;
+    const wp = Math.max(3, baseWp + wpJitter);
+    const cand = generateCandidate(i, wp);
+    if (!cand) continue;
+    const observed = cand.aborted ? 'fiendish' : classify(cand.nodes, area);
+    if (observed === target) return cand;
+    const score = Math.abs(DIFFS.indexOf(observed) - DIFFS.indexOf(target));
+    if (score < bestScore) { bestScore = score; best = cand; }
+    // Accept a one-band miss after a few tries.
+    if (score === 1 && i >= 4) return cand;
+  }
+  return best;
+}
+
+// ─── Snake fallback (should almost never trigger) ───
+function snakeFallback() {
+  const sol = [];
+  for (let r = 0; r < SIZE; r++) {
+    if (r % 2 === 0) for (let c = 0; c < SIZE; c++) sol.push([r, c]);
+    else              for (let c = SIZE - 1; c >= 0; c--) sol.push([r, c]);
+  }
+  solution = sol;
+  waypoints = pickWaypoints(sol, targetWaypoints(DIFFICULTY, SIZE * SIZE));
+  walls = new Set();
+}
+
+// ─── Boot a puzzle ──────────────────────────────────
+async function newPuzzle(opts) {
+  opts = opts || {};
+  if (opts.fromURL !== true) {
+    if (opts.newSeed !== false) SEED = randomSeedString();
+  }
+  showLoader('Composing…');
+  // Yield to paint loader.
+  await new Promise(r => setTimeout(r, 16));
+
+  let cand = null;
+  try {
+    cand = generateForDifficulty();
+  } catch (e) {
+    console.error(e);
+  }
+  if (cand) {
+    solution = cand.sol;
+    waypoints = cand.waypoints;
+    walls = cand.walls;
+    lastNodes = cand.nodes;
+  } else {
+    snakeFallback();
+    lastNodes = 0;
+  }
+  path = [];
+  solved = false;
+  Attempts.reset();
+  if (typeof HintSystem !== 'undefined') HintSystem.reset();
+  hideToast();
+  hideLoader();
+  updateURL();
+  updateSeedDisplay();
+  render();
+}
+
+function showLoader(msg) {
+  if (loaderMsg) loaderMsg.textContent = msg || 'Composing…';
+  boardWrap.classList.add('loading');
+}
+function hideLoader() { boardWrap.classList.remove('loading'); }
+
+// ─── URL / sharing ──────────────────────────────────
+function parseURL() {
+  const p = new URLSearchParams(location.search);
+  const seed = p.get('seed');
+  const size = parseInt(p.get('size'), 10);
+  const diff = p.get('difficulty');
+  if (size && [5,6,7,8].includes(size)) SIZE = size;
+  if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
+  if (seed) SEED = seed;
+  // Sync UI selects.
+  const sSel = document.getElementById('sizeSel');
+  const dSel = document.getElementById('diffSel');
+  if (sSel) sSel.value = String(SIZE);
+  if (dSel) dSel.value = DIFFICULTY;
+}
+
+function updateURL() {
+  const p = new URLSearchParams();
+  p.set('seed', SEED);
+  p.set('size', SIZE);
+  p.set('difficulty', DIFFICULTY);
+  history.replaceState(null, '', location.pathname + '?' + p.toString());
+}
+
+function updateSeedDisplay() {
+  if (seedValEl) seedValEl.textContent = SEED;
+  if (diffBadgeEl) diffBadgeEl.textContent = DIFFICULTY;
+}
+
+// ─── Render ─────────────────────────────────────────
+function render() {
+  grid.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+  grid.style.gridTemplateRows    = `repeat(${SIZE}, 1fr)`;
+  grid.innerHTML = '';
+  const wpMap = new Map();
+  waypoints.forEach(w => wpMap.set(k(w.r, w.c), w));
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      if (r === SIZE - 1) cell.classList.add('last-row');
+      if (c === SIZE - 1) cell.classList.add('last-col');
+      if (r > 0        && walls.has(wk(r - 1, c, r, c))) cell.classList.add('wall-top');
+      if (c > 0        && walls.has(wk(r, c - 1, r, c))) cell.classList.add('wall-left');
+      if (r < SIZE - 1 && walls.has(wk(r, c, r + 1, c))) cell.classList.add('wall-bottom');
+      if (c < SIZE - 1 && walls.has(wk(r, c, r, c + 1))) cell.classList.add('wall-right');
+      const w = wpMap.get(k(r, c));
+      if (w) {
+        const num = document.createElement('div');
+        num.className = 'number' + (w.n === 1 ? ' start' : '');
+        num.textContent = w.n;
+        num.style.setProperty('--idx', w.n - 1);
+        cell.appendChild(num);
+      }
+      grid.appendChild(cell);
+    }
+  }
+  refresh();
+}
+
+function cellCenter(r, c) {
+  const w = boardWrap.clientWidth;
+  const h = boardWrap.clientHeight;
+  const cw = w / SIZE;
+  const ch = h / SIZE;
+  return [c * cw + cw / 2, r * ch + ch / 2];
+}
+
+function drawPath() {
+  const w = boardWrap.clientWidth;
+  const h = boardWrap.clientHeight;
+  overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  overlay.innerHTML = '';
+  if (path.length === 0) return;
+  const cw = w / SIZE;
+  const lineW = Math.max(10, cw * 0.55);
+  const color = solved ? 'var(--success)' : 'var(--accent)';
+  if (path.length === 1) {
+    const [cx, cy] = cellCenter(path[0][0], path[0][1]);
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', cx); c.setAttribute('cy', cy);
+    c.setAttribute('r', lineW / 2);
+    c.setAttribute('fill', color); c.setAttribute('opacity', '0.85');
+    overlay.appendChild(c);
+    return;
+  }
+  const pts = path.map(([r, c]) => cellCenter(r, c).join(',')).join(' ');
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  line.setAttribute('points', pts);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', lineW);
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('stroke-linejoin', 'round');
+  line.setAttribute('opacity', '0.88');
+  overlay.appendChild(line);
+}
+
+function updateStatus() {
+  progressEl.textContent = `${path.length} / ${SIZE * SIZE}`;
+  if (solved) {
+    statusEl.textContent = 'Solved';
+    statusEl.classList.add('solved');
+    boardWrap.classList.add('solved');
+  } else {
+    boardWrap.classList.remove('solved');
+    statusEl.classList.remove('solved');
+    if (path.length === 0)                 statusEl.textContent = 'Begin at 1';
+    else if (path.length === SIZE * SIZE)  statusEl.textContent = 'Almost…';
+    else                                    statusEl.textContent = 'Drawing';
+  }
+}
+
+// ─── Validation ─────────────────────────────────────
+function isStart(cell) {
+  return waypoints[0].r === cell[0] && waypoints[0].c === cell[1];
+}
+function canAdd(newCell) {
+  if (path.length === 0) return isStart(newCell);
+  const last = path[path.length - 1];
+  if (!isAdj(last, newCell)) return false;
+  if (walls.has(wk(last[0], last[1], newCell[0], newCell[1]))) return false;
+  for (const p of path) if (p[0] === newCell[0] && p[1] === newCell[1]) return false;
+  const wp = waypoints.find(w => w.r === newCell[0] && w.c === newCell[1]);
+  if (wp) {
+    let hit = 0;
+    for (const w of waypoints) if (path.some(p => p[0] === w.r && p[1] === w.c)) hit++;
+    if (wp.n !== hit + 1) return false;
+  }
+  return true;
+}
+function checkSolved() {
+  if (path.length !== SIZE * SIZE) return false;
+  for (let i = 0; i < waypoints.length; i++) {
+    const w = waypoints[i];
+    const idx = path.findIndex(p => p[0] === w.r && p[1] === w.c);
+    if (idx === -1) return false;
+    if (i > 0) {
+      const prev = waypoints[i - 1];
+      const pIdx = path.findIndex(p => p[0] === prev.r && p[1] === prev.c);
+      if (pIdx >= idx) return false;
+    }
+  }
+  return true;
+}
+function refresh() {
+  const wasSolved = solved;
+  solved = checkSolved();
+  drawPath();
+  updateStatus();
+  if (typeof HintSystem !== 'undefined') HintSystem.onPathChange();
+  if (solved && !wasSolved) {
+    Attempts.onSolved();
+    showToast();
+    if (typeof HintSystem !== 'undefined') HintSystem.onSolved();
+  }
+}
+
+// ─── Input ──────────────────────────────────────────
+function getCellAt(x, y) {
+  const r = boardWrap.getBoundingClientRect();
+  const rx = x - r.left, ry = y - r.top;
+  if (rx < 0 || ry < 0 || rx > r.width || ry > r.height) return null;
+  const cw = r.width / SIZE, ch = r.height / SIZE;
+  const cc = Math.floor(rx / cw), rr = Math.floor(ry / ch);
+  if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return null;
+  return [rr, cc];
+}
+function handleStart(x, y) {
+  if (solved) return;
+  const cell = getCellAt(x, y);
+  if (!cell) return;
+  // Tap an existing path cell → truncate to it. We count this as a backtrack
+  // since the path got shorter.
+  const idx = path.findIndex(p => p[0] === cell[0] && p[1] === cell[1]);
+  if (idx >= 0) {
+    if (idx < path.length - 1) Attempts.recordBacktrack();
+    path = path.slice(0, idx + 1); drawing = true; refresh(); return;
+  }
+  // Starting fresh on cell #1
+  if (path.length === 0 && isStart(cell)) {
+    path = [cell]; drawing = true;
+    Attempts.recordMove();
+    refresh(); return;
+  }
+  // Extending an existing path by tap-adjacent
+  if (path.length > 0 && canAdd(cell)) {
+    path.push(cell); drawing = true;
+    Attempts.recordMove();
+    refresh();
+  }
+}
+function handleMove(x, y) {
+  if (!drawing) return;
+  const cell = getCellAt(x, y);
+  if (!cell) return;
+  const last = path[path.length - 1];
+  if (!last || (last[0] === cell[0] && last[1] === cell[1])) return;
+  // Drag back onto the immediately-previous cell — single-step backtrack
+  if (path.length >= 2) {
+    const prev = path[path.length - 2];
+    if (prev[0] === cell[0] && prev[1] === cell[1]) {
+      path.pop();
+      Attempts.recordBacktrack();
+      refresh();
+      return;
+    }
+  }
+  // Drag back onto an earlier cell — truncates the tail
+  const exist = path.findIndex(p => p[0] === cell[0] && p[1] === cell[1]);
+  if (exist >= 0) {
+    path = path.slice(0, exist + 1);
+    Attempts.recordBacktrack();
+    refresh();
+    return;
+  }
+  // New cell entered → forward move
+  if (canAdd(cell)) {
+    path.push(cell);
+    Attempts.recordMove();
+    refresh();
+  }
+}
+function handleEnd() { drawing = false; }
+
+boardWrap.addEventListener('mousedown', e => { e.preventDefault(); handleStart(e.clientX, e.clientY); });
+window.addEventListener('mousemove', e => { if (drawing) handleMove(e.clientX, e.clientY); });
+window.addEventListener('mouseup', handleEnd);
+boardWrap.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; handleStart(t.clientX, t.clientY); }, { passive: false });
+boardWrap.addEventListener('touchmove',  e => { e.preventDefault(); const t = e.touches[0]; handleMove(t.clientX, t.clientY); }, { passive: false });
+boardWrap.addEventListener('touchend',    handleEnd);
+boardWrap.addEventListener('touchcancel', handleEnd);
+
+// ─── Buttons ────────────────────────────────────────
+document.getElementById('undoBtn').addEventListener('click', () => {
+  if (path.length === 0) return;
+  path.pop();
+  Attempts.recordUndo();
+  refresh();
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  path = [];
+  Attempts.recordClear();
+  hideToast(); refresh();
+});
+document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ newSeed: true }));
+document.getElementById('sizeSel').addEventListener('change', e => {
+  SIZE = parseInt(e.target.value, 10);
+  newPuzzle({ newSeed: false });
+});
+document.getElementById('diffSel').addEventListener('change', e => {
+  DIFFICULTY = e.target.value;
+  newPuzzle({ newSeed: false });
+});
+
+// Share button — copies URL to clipboard.
+const shareBtn = document.getElementById('shareBtn');
+shareBtn.addEventListener('click', async () => {
+  const url = location.href;
+  try {
+    if (navigator.clipboard) await navigator.clipboard.writeText(url);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    shareBtn.classList.add('copied');
+    shareBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      shareBtn.classList.remove('copied');
+      shareBtn.textContent = 'Copy Link';
+    }, 1600);
+  } catch (e) {
+    shareBtn.textContent = 'Copy failed';
+    setTimeout(() => { shareBtn.textContent = 'Copy Link'; }, 1600);
+  }
+});
+
+window.addEventListener('resize', drawPath);
+
+// ─── Toast ──────────────────────────────────────────
+let toastTimer = null;
+function showToast() {
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 2800);
+}
+function hideToast() { toastEl.classList.remove('show'); }
+
+// ─── Date stamp ─────────────────────────────────────
+(function setDateLine() {
+  const d = new Date();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('dateLine').textContent =
+    `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ATTEMPT TRACKING
+// ─────────────────────────────────────────────────────────────────────────
+// Keeps live counters of what the player has done on the current puzzle.
+// The timer starts on the first move (not on puzzle generation) so that
+// thinking time before touching the board doesn't count against them.
+// On solve, we hand off to LogModal which presents the save dialog.
+// ═══════════════════════════════════════════════════════════════════════════
+const Attempts = (function() {
+  let counters = { moves: 0, backtracks: 0, undos: 0, clears: 0 };
+  let startedAt = null;   // unix ms; null until first interaction
+
+  function reset() {
+    counters = { moves: 0, backtracks: 0, undos: 0, clears: 0 };
+    startedAt = null;
+  }
+  function ensureStarted() { if (startedAt === null) startedAt = Date.now(); }
+  function recordMove()      { ensureStarted(); counters.moves++; }
+  function recordBacktrack() { ensureStarted(); counters.backtracks++; }
+  function recordUndo()      { counters.undos++; }
+  function recordClear()     { counters.clears++; }
+
+  // The snapshot is what gets persisted. Field names match the SQL schema
+  // exactly so we can hand it straight to DB.saveAttempt() without mapping.
+  function snapshot() {
+    const now = Date.now();
+    return {
+      seed: SEED,
+      size: SIZE,
+      difficulty: DIFFICULTY,
+      started_at: startedAt || now,
+      completed_at: now,
+      duration_ms: startedAt ? (now - startedAt) : 0,
+      moves: counters.moves,
+      backtracks: counters.backtracks,
+      undos: counters.undos,
+      clears: counters.clears,
+      solved: 1
+    };
+  }
+
+  function onSolved() {
+    // Defer opening the modal so the solved-state animation can paint first.
+    setTimeout(() => LogModal.open(snapshot()), 600);
+  }
+
+  return { reset, recordMove, recordBacktrack, recordUndo, recordClear,
+           snapshot, onSolved };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE (sql.js, persisted to IndexedDB)
+// ─────────────────────────────────────────────────────────────────────────
+// We use sql.js — SQLite compiled to WebAssembly — for two reasons:
+//   1. Real SQL means the schema and queries match the server (Python+SQLite
+//      or Postgres) almost exactly. Easier to think about as one app.
+//   2. The user can export a real .db file and inspect it with any SQLite
+//      tool. Their data is portable, not locked inside the browser.
+//
+// Storage strategy: the whole SQLite database is serialised to a Uint8Array
+// and kept in IndexedDB under a single key. For thousands of attempts this
+// is well under any quota. Each saveAttempt() rewrites the whole blob —
+// fine for this volume of writes (a few per minute at most).
+// ═══════════════════════════════════════════════════════════════════════════
+const DB = (function() {
+  let SQL = null;     // the sql.js module, once loaded
+  let db  = null;     // the live Database instance
+  let ready = false;
+  let readyPromise = null;
+
+  // SQL schema. SQLite dialect; almost all of this works on Postgres too.
+  // For Postgres we'd swap `INTEGER PRIMARY KEY AUTOINCREMENT` for `SERIAL`,
+  // but the server's DAL handles that translation when running on Postgres.
+  //
+  // NB: the v2 columns (is_public, env_verified, tos_version) are present
+  // here for fresh installs. For browsers that already created an attempts
+  // table under v1, the migration pass in init() ALTERs them in.
+  const SCHEMA = `
+    CREATE TABLE IF NOT EXISTS attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,                     -- anonymous per-browser UUID
+      seed TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      difficulty TEXT NOT NULL,
+      started_at INTEGER NOT NULL,      -- unix ms
+      completed_at INTEGER,
+      duration_ms INTEGER,
+      moves INTEGER NOT NULL DEFAULT 0,
+      backtracks INTEGER NOT NULL DEFAULT 0,
+      undos INTEGER NOT NULL DEFAULT 0,
+      clears INTEGER NOT NULL DEFAULT 0,
+      solved INTEGER NOT NULL DEFAULT 0,
+      -- Visibility / provenance (v2 additions)
+      is_public INTEGER NOT NULL DEFAULT 0,
+      env_verified INTEGER NOT NULL DEFAULT 0,
+      tos_version INTEGER NOT NULL DEFAULT 1,
+      -- Environmental context, fetched at save time
+      latitude REAL,
+      longitude REAL,
+      location_label TEXT,
+      local_time_iso TEXT,
+      sunrise_iso TEXT,
+      sunset_iso TEXT,
+      weather_temp_c REAL,
+      weather_condition TEXT,
+      weather_wind_kmh REAL,
+      -- Optional self-report fields. All NULL by default.
+      last_meal_at TEXT,
+      last_meal_desc TEXT,
+      last_stimulant_at TEXT,
+      last_stimulant_desc TEXT,
+      last_stimulant_amount TEXT,
+      last_intoxicant_at TEXT,
+      last_intoxicant_desc TEXT,
+      last_intoxicant_amount TEXT,
+      last_exercise_at TEXT,
+      last_exercise_desc TEXT,
+      last_exercise_amount TEXT,
+      woke_at TEXT,
+      slept_at TEXT,
+      sleep_quality_desc TEXT,
+      sleep_quality_amount TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_attempts_user    ON attempts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_attempts_puzzle  ON attempts(seed, size, difficulty);
+    CREATE INDEX IF NOT EXISTS idx_attempts_created ON attempts(created_at);
+  `;
+
+  // Additive migrations: any columns that the user's existing in-browser
+  // SQLite DB might be missing. The schema CREATE TABLE IF NOT EXISTS
+  // above won't add columns to a pre-existing table — only ALTER TABLE
+  // does that. We try each, swallowing the "duplicate column" error
+  // that sql.js throws when the column is already there.
+  const MIGRATIONS_V2 = [
+    "ALTER TABLE attempts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE attempts ADD COLUMN env_verified INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE attempts ADD COLUMN tos_version INTEGER NOT NULL DEFAULT 1",
+  ];
+  function runMigrations() {
+    for (const stmt of MIGRATIONS_V2) {
+      try { db.exec(stmt); }
+      catch (e) { /* column already exists — expected on fresh installs */ }
+    }
+  }
+
+  // ── IndexedDB persistence (simple key-value of one blob) ───────────────
+  function openIDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('trace-db', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('kv');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+  async function loadBytes() {
+    const idb = await openIDB();
+    return new Promise((res, rej) => {
+      const tx = idb.transaction('kv', 'readonly');
+      const r = tx.objectStore('kv').get('db');
+      r.onsuccess = () => res(r.result || null);
+      r.onerror   = () => rej(r.error);
+    });
+  }
+  async function saveBytes(bytes) {
+    const idb = await openIDB();
+    return new Promise((res, rej) => {
+      const tx = idb.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(bytes, 'db');
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    });
+  }
+
+  // ── Initialisation ─────────────────────────────────────────────────────
+  // Called once at boot. Returns a promise that resolves when the DB is
+  // ready to take queries. Callers can `await DB.ready()` if they need it.
+  function init() {
+    if (readyPromise) return readyPromise;
+    readyPromise = (async () => {
+      // sql.js comes from a CDN; locateFile tells it where to find the WASM.
+      SQL = await initSqlJs({
+        locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`
+      });
+      const prior = await loadBytes();
+      db = prior ? new SQL.Database(prior) : new SQL.Database();
+      db.exec(SCHEMA);
+      runMigrations();           // bring older DBs up to v2
+      ready = true;
+    })();
+    return readyPromise;
+  }
+
+  // ── Insert ─────────────────────────────────────────────────────────────
+  // `record` is a plain object whose keys match column names. We build the
+  // INSERT dynamically so we only mention columns the caller actually set;
+  // anything missing falls back to NULL or the column default.
+  async function saveAttempt(record) {
+    if (!ready) await init();
+    record = Object.assign({
+      user_id: getUserId(),
+      created_at: Date.now()
+    }, record);
+    const keys = Object.keys(record);
+    const placeholders = keys.map(() => '?').join(', ');
+    const sql = `INSERT INTO attempts (${keys.join(', ')}) VALUES (${placeholders})`;
+    db.run(sql, keys.map(k => record[k]));
+    await saveBytes(db.export());
+    // If we're being served from a real server (not file://), opportunistically
+    // mirror the attempt to /api/attempts so it contributes to global stats.
+    // This is fire-and-forget; failure is silent (the local copy is what counts).
+    if (location.protocol.startsWith('http')) {
+      fetch('/api/attempts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      }).catch(() => { /* ignore — offline or no server */ });
+    }
+  }
+
+  // ── Queries ────────────────────────────────────────────────────────────
+  async function listAttempts(limit) {
+    if (!ready) await init();
+    const r = db.exec(`SELECT * FROM attempts ORDER BY started_at DESC LIMIT ${limit || 100}`);
+    if (!r.length) return [];
+    return rowsToObjects(r[0]);
+  }
+  async function summary() {
+    if (!ready) await init();
+    const r = db.exec(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(solved) AS solved,
+        CAST(AVG(CASE WHEN solved=1 THEN duration_ms END) AS INTEGER) AS avg_ms,
+        CAST(AVG(CASE WHEN solved=1 THEN backtracks END) AS REAL) AS avg_backtracks
+      FROM attempts
+    `);
+    if (!r.length) return { total: 0, solved: 0, avg_ms: 0, avg_backtracks: 0 };
+    return rowsToObjects(r[0])[0];
+  }
+  async function exportJSON() {
+    if (!ready) await init();
+    const all = await listAttempts(100000);
+    return JSON.stringify(all, null, 2);
+  }
+  function rowsToObjects(res) {
+    return res.values.map(row => {
+      const obj = {};
+      res.columns.forEach((c, i) => obj[c] = row[i]);
+      return obj;
+    });
+  }
+
+  // ── Anonymous user ID ──────────────────────────────────────────────────
+  // Identity is owned by the Profile module (which persists to localStorage
+  // under 'trace.profile' and syncs to /api/users when served by Flask).
+  // This getter falls back to the legacy 'trace.user_id' key for backward
+  // compat — Profile.init() handles migration when called during boot.
+  function getUserId() {
+    if (typeof Profile !== 'undefined' && Profile.getId) {
+      const id = Profile.getId();
+      if (id) return id;
+    }
+    // Pre-onboarding fallback (shouldn't happen in normal flow since
+    // boot() blocks on Onboarding before any saveAttempt can run, but
+    // keeps the function defensively non-null).
+    let id = localStorage.getItem('trace.user_id');
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID()) ||
+           ('u_' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      localStorage.setItem('trace.user_id', id);
+    }
+    return id;
+  }
+
+  return { init, saveAttempt, listAttempts, summary, exportJSON, getUserId };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENVIRONMENTAL DATA
+// ─────────────────────────────────────────────────────────────────────────
+// On request, captures: latitude/longitude, a human-readable location label,
+// the current weather, and today's sunrise/sunset for the user's location.
+// Three free, no-key, CORS-friendly APIs:
+//   • navigator.geolocation              — browser API, requires permission
+//   • api.open-meteo.com                 — weather + solar times
+//   • api.bigdatacloud.net               — reverse geocoding (place name)
+//
+// Results are cached in localStorage for 30 minutes so repeated logs in a
+// session don't re-prompt or re-fetch.
+// ═══════════════════════════════════════════════════════════════════════════
+const Env = (function() {
+  const CACHE_KEY = 'trace.env';
+  const STALE_MS = 30 * 60 * 1000;
+
+  function loadCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); }
+    catch (e) { return null; }
+  }
+  function saveCache(v) { localStorage.setItem(CACHE_KEY, JSON.stringify(v)); }
+
+  function getPosition() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+        err => resolve(null),
+        { timeout: 8000, maximumAge: 5 * 60 * 1000 }
+      );
+    });
+  }
+
+  // WMO weather code → short human label. From open-meteo docs.
+  function weatherText(code) {
+    const map = {
+      0: 'clear', 1: 'mainly clear', 2: 'partly cloudy', 3: 'overcast',
+      45: 'fog', 48: 'rime fog',
+      51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle',
+      61: 'light rain', 63: 'rain', 65: 'heavy rain',
+      71: 'light snow', 73: 'snow', 75: 'heavy snow',
+      77: 'snow grains',
+      80: 'rain showers', 81: 'heavy showers', 82: 'violent showers',
+      85: 'snow showers', 86: 'heavy snow showers',
+      95: 'thunderstorm', 96: 'thunderstorm w/ hail', 99: 'severe thunderstorm'
+    };
+    return map[code] || `code ${code}`;
+  }
+
+  async function fetchWeatherAndSun(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+                `&current=temperature_2m,wind_speed_10m,weather_code` +
+                `&daily=sunrise,sunset&timezone=auto&forecast_days=1`;
+    const r = await fetch(url).then(r => r.json());
+    return {
+      tempC: r.current?.temperature_2m,
+      windKmh: r.current?.wind_speed_10m,
+      condition: weatherText(r.current?.weather_code),
+      sunrise: r.daily?.sunrise?.[0],
+      sunset:  r.daily?.sunset?.[0]
+    };
+  }
+
+  async function fetchLabel(lat, lon) {
+    try {
+      const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+        .then(r => r.json());
+      return [r.city || r.locality, r.principalSubdivision, r.countryCode]
+        .filter(Boolean).join(', ');
+    } catch (e) { return null; }
+  }
+
+  // Main entry. Returns a snapshot with all the env data we can get,
+  // or partial data if some fetches fail.
+  async function detect() {
+    const cached = loadCache();
+    if (cached && Date.now() - cached.fetched_at < STALE_MS) return cached;
+
+    const pos = await getPosition();
+    if (!pos) return { error: 'geolocation_denied' };
+
+    const [ws, label] = await Promise.all([
+      fetchWeatherAndSun(pos.lat, pos.lon),
+      fetchLabel(pos.lat, pos.lon)
+    ]);
+
+    const snapshot = {
+      lat: pos.lat,
+      lon: pos.lon,
+      label: label,
+      local_time_iso: new Date().toISOString(),
+      sunrise_iso: ws.sunrise,
+      sunset_iso: ws.sunset,
+      weather_temp_c: ws.tempC,
+      weather_condition: ws.condition,
+      weather_wind_kmh: ws.windKmh,
+      fetched_at: Date.now()
+    };
+    saveCache(snapshot);
+    return snapshot;
+  }
+
+  function cached() { return loadCache(); }
+  function clear()  { localStorage.removeItem(CACHE_KEY); }
+
+  return { detect, cached, clear };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOG-ATTEMPT MODAL
+// ─────────────────────────────────────────────────────────────────────────
+// Opens when the player solves a puzzle. Shows their stats, optionally
+// fetches environmental context (on user click), exposes the optional
+// self-report dropdowns, then writes the whole record to DB.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Reusable time-ago dropdown options. Two flavours: SHORT for things like
+// food (granular for recent hours), LONG for things like sleep/exercise.
+const TIME_OPTS_SHORT = [
+  ['', '—'], ['0', 'Just now'], ['15', '15 min ago'], ['30', '30 min ago'],
+  ['60', '1 hour ago'], ['120', '2 hours ago'], ['180', '3 hours ago'],
+  ['360', '6+ hours ago']
+];
+const TIME_OPTS_LONG = [
+  ['', '—'], ['0', 'Just now'], ['30', '30 min ago'], ['60', '1 hour ago'],
+  ['120', '2 hours ago'], ['240', '4 hours ago'], ['480', '8 hours ago'],
+  ['720', '12+ hours ago']
+];
+const WAKE_OPTS = [
+  ['', '—'], ['before_5', 'Before 5am'], ['5_6', '5–6am'], ['6_7', '6–7am'],
+  ['7_8', '7–8am'], ['8_9', '8–9am'], ['9_10', '9–10am'], ['after_10', 'After 10am']
+];
+const SLEPT_OPTS = [
+  ['', '—'], ['before_21', 'Before 9pm'], ['21_22', '9–10pm'], ['22_23', '10–11pm'],
+  ['23_0', '11pm–12am'], ['0_1', '12–1am'], ['1_2', '1–2am'], ['after_2', 'After 2am']
+];
+
+// Form schema: drives the rendering. Each row is one labelled field group
+// containing one or more <select>s. The `key` of each select maps to a
+// column name in the DB; the `opts` are [value, label] pairs.
+const FORM_SCHEMA = [
+  { label: 'Last meal', selects: [
+    { key: 'last_meal_at', opts: TIME_OPTS_SHORT },
+    { key: 'last_meal_desc', opts: [
+      ['', '—'], ['snack','Snack'], ['light','Light meal'],
+      ['normal','Normal meal'], ['heavy','Heavy meal']
+    ]}
+  ]},
+  { label: 'Last stimulant', selects: [
+    { key: 'last_stimulant_at',     opts: TIME_OPTS_LONG },
+    { key: 'last_stimulant_desc',   opts: [
+      ['', '—'], ['coffee','Coffee'], ['espresso','Espresso'], ['tea','Tea'],
+      ['energy_drink','Energy drink'], ['soda','Soda'], ['other','Other']
+    ]},
+    { key: 'last_stimulant_amount', opts: [
+      ['', '—'], ['1','1 unit'], ['2','2 units'], ['3','3 units'], ['4+','4+ units']
+    ]}
+  ]},
+  { label: 'Last intoxicant', selects: [
+    { key: 'last_intoxicant_at',     opts: TIME_OPTS_LONG },
+    { key: 'last_intoxicant_desc',   opts: [
+      ['', '—'], ['beer','Beer'], ['wine','Wine'], ['spirits','Spirits'],
+      ['cannabis','Cannabis'], ['other','Other']
+    ]},
+    { key: 'last_intoxicant_amount', opts: [
+      ['', '—'], ['1','1 unit'], ['2','2 units'], ['3','3 units'], ['4+','4+ units']
+    ]}
+  ]},
+  { label: 'Last exercise', selects: [
+    { key: 'last_exercise_at',     opts: TIME_OPTS_LONG },
+    { key: 'last_exercise_desc',   opts: [
+      ['', '—'], ['walk','Walk'], ['run','Run'], ['bike','Bike'],
+      ['gym','Gym'], ['yoga','Yoga'], ['sport','Sport'],
+      ['labour','Heavy labour'], ['other','Other']
+    ]},
+    { key: 'last_exercise_amount', opts: [
+      ['', '—'], ['brief','Brief (<15m)'], ['mod','Moderate (15–45m)'], ['long','Long (45m+)']
+    ]}
+  ]},
+  { label: 'Woke at',         selects: [{ key: 'woke_at',  opts: WAKE_OPTS  }] },
+  { label: 'Slept at',        selects: [{ key: 'slept_at', opts: SLEPT_OPTS }] },
+  { label: 'Sleep quality',   selects: [
+    { key: 'sleep_quality_desc', opts: [
+      ['', '—'], ['poor','Poor'], ['fair','Fair'], ['good','Good'], ['great','Great']
+    ]},
+    { key: 'sleep_quality_amount', opts: [
+      ['', '—'], ['<4','< 4 hours'], ['4_5','4–5h'], ['5_6','5–6h'],
+      ['6_7','6–7h'], ['7_8','7–8h'], ['8_9','8–9h'], ['9+','9+h']
+    ]}
+  ]}
+];
+
+const LogModal = (function() {
+  const el      = document.getElementById('logModal');
+  const formEl  = document.getElementById('logFormRows');
+  const envEl   = document.getElementById('envBlock');
+  let currentSnapshot = null;
+  let currentEnv = null;
+  let formInitialized = false;
+
+  // Build all the form rows once on first open. They don't change between
+  // sessions so we cache the DOM.
+  function initForm() {
+    if (formInitialized) return;
+    const html = FORM_SCHEMA.map(row => {
+      const sels = row.selects.map(s => {
+        const opts = s.opts.map(([v, l]) =>
+          `<option value="${v}">${l}</option>`
+        ).join('');
+        return `<select class="form-sel" data-key="${s.key}">${opts}</select>`;
+      }).join('');
+      return `
+        <div class="form-row">
+          <label class="form-label">${row.label}</label>
+          <div class="form-sel-group">${sels}</div>
+        </div>`;
+    }).join('');
+    formEl.innerHTML = html;
+    formInitialized = true;
+  }
+
+  // Render the environmental panel. Three states:
+  //   • cached → show data immediately, no button
+  //   • not yet detected → show a "Detect" button
+  //   • detection failed → show a brief explanation
+  function renderEnv(state) {
+    if (!state) {
+      envEl.innerHTML = `
+        <div style="font-family: 'Fraunces', serif; font-style: italic; color: var(--ink-soft); margin-bottom: 8px;">
+          Optionally include where & when you solved.
+        </div>
+        <button class="env-detect-btn" id="envDetectBtn">📍 Detect location &amp; weather</button>`;
+      document.getElementById('envDetectBtn').addEventListener('click', detect);
+      return;
+    }
+    if (state.error === 'geolocation_denied') {
+      envEl.innerHTML = `<div style="color: var(--ink-soft);">Location unavailable — saving without environmental data.</div>`;
+      return;
+    }
+    // Format the display
+    const time = new Date(state.local_time_iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const sunrise = state.sunrise_iso ? new Date(state.sunrise_iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+    const sunset  = state.sunset_iso  ? new Date(state.sunset_iso ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+    const temp = state.weather_temp_c != null ? `${Math.round(state.weather_temp_c)}°C` : '—';
+    envEl.innerHTML = `
+      <div class="env-row"><span class="env-l">Location</span><span class="env-v">${state.label || `${state.lat?.toFixed(3)}, ${state.lon?.toFixed(3)}`}</span></div>
+      <div class="env-row"><span class="env-l">Now</span><span class="env-v">${time} &nbsp;·&nbsp; ↑ ${sunrise} &nbsp;·&nbsp; ↓ ${sunset}</span></div>
+      <div class="env-row"><span class="env-l">Weather</span><span class="env-v">${temp} &nbsp;·&nbsp; ${state.weather_condition || '—'}</span></div>`;
+  }
+
+  async function detect() {
+    const btn = document.getElementById('envDetectBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Locating…'; }
+    currentEnv = await Env.detect();
+    renderEnv(currentEnv);
+  }
+
+  function readForm() {
+    const out = {};
+    formEl.querySelectorAll('select.form-sel').forEach(sel => {
+      const v = sel.value;
+      if (v !== '') out[sel.dataset.key] = v;
+    });
+    return out;
+  }
+
+  function formatDuration(ms) {
+    if (!ms || ms < 1000) return '—';
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return `${m}:${ss}`;
+  }
+
+  function open(snapshot) {
+    initForm();
+    currentSnapshot = snapshot;
+    currentEnv = Env.cached();
+    document.getElementById('logTime').textContent       = formatDuration(snapshot.duration_ms);
+    document.getElementById('logMoves').textContent      = snapshot.moves;
+    document.getElementById('logBacktracks').textContent = snapshot.backtracks;
+    document.getElementById('logUndos').textContent      = snapshot.undos;
+    // Default the per-attempt "Make public" checkbox from the user's profile.
+    document.getElementById('logIsPublic').checked = Profile.publicByDefault();
+    renderEnv(currentEnv);
+    el.hidden = false;
+  }
+  function close() { el.hidden = true; }
+
+  async function save() {
+    const env = currentEnv && !currentEnv.error ? {
+      latitude: currentEnv.lat,
+      longitude: currentEnv.lon,
+      location_label: currentEnv.label,
+      local_time_iso: currentEnv.local_time_iso,
+      sunrise_iso: currentEnv.sunrise_iso,
+      sunset_iso: currentEnv.sunset_iso,
+      weather_temp_c: currentEnv.weather_temp_c,
+      weather_condition: currentEnv.weather_condition,
+      weather_wind_kmh: currentEnv.weather_wind_kmh
+    } : {};
+    // Per-attempt visibility + provenance fields. These match server-side
+    // expectations and let leaderboard/insights filtering work correctly.
+    const profile = Profile.get() || {};
+    const meta = {
+      is_public: document.getElementById('logIsPublic').checked ? 1 : 0,
+      env_verified: (currentEnv && !currentEnv.error) ? 1 : 0,
+      tos_version: profile.tos_version || Profile.CLIENT_TOS_VERSION(),
+    };
+    const record = Object.assign({}, currentSnapshot, env, meta, readForm());
+    await DB.saveAttempt(record);
+    close();
+  }
+
+  document.getElementById('logSkipBtn').addEventListener('click', close);
+  document.getElementById('logSaveBtn').addEventListener('click', save);
+  // Allow clicking the dark backdrop to dismiss without saving
+  el.addEventListener('click', e => { if (e.target === el) close(); });
+
+  return { open, close };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATS MODAL
+// ─────────────────────────────────────────────────────────────────────────
+// A simple logbook view. Counts, summary stats, list of recent attempts.
+// Also offers a JSON export — your data, your call.
+// ═══════════════════════════════════════════════════════════════════════════
+const StatsModal = (function() {
+  const el          = document.getElementById('statsModal');
+  const summaryEl   = document.getElementById('statsSummary');
+  const listEl      = document.getElementById('attemptsList');
+
+  function fmtTime(ms) {
+    if (!ms) return '—';
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function fmtDate(unixMs) {
+    const d = new Date(unixMs);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    if (sameDay) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  async function render() {
+    const sum = await DB.summary();
+    const attempts = await DB.listAttempts(50);
+
+    summaryEl.innerHTML = `
+      <div class="stat-cell"><div class="stat-v">${sum.solved || 0}</div><div class="stat-l">Solved</div></div>
+      <div class="stat-cell"><div class="stat-v">${fmtTime(sum.avg_ms)}</div><div class="stat-l">Avg time</div></div>
+      <div class="stat-cell"><div class="stat-v">${sum.avg_backtracks != null ? sum.avg_backtracks.toFixed(1) : '—'}</div><div class="stat-l">Avg backtracks</div></div>`;
+
+    if (attempts.length === 0) {
+      listEl.innerHTML = `<div class="attempt-empty">No saved attempts yet. Solve a puzzle and tap "Save".</div>`;
+      return;
+    }
+    listEl.innerHTML = attempts.map(a => `
+      <div class="attempt-row">
+        <div class="attempt-when">${fmtDate(a.started_at)}</div>
+        <div class="attempt-main">
+          ${a.size}×${a.size} &nbsp;·&nbsp; ${a.difficulty}
+          <span class="seed">&nbsp; seed ${a.seed}</span>
+          <div style="font-size: 10px; color: var(--ink-soft); margin-top: 2px;">
+            ${a.moves} moves, ${a.backtracks} backtracks, ${a.undos} undos
+            ${a.location_label ? ` · ${a.location_label}` : ''}
+            ${a.weather_condition ? ` · ${a.weather_condition}` : ''}
+          </div>
+        </div>
+        <div class="attempt-time">${fmtTime(a.duration_ms)}</div>
+      </div>`).join('');
+  }
+
+  async function open()  { await render(); el.hidden = false; }
+  function close() { el.hidden = true; }
+
+  async function exportData() {
+    const json = await DB.exportJSON();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `trace-attempts-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('statsBtn').addEventListener('click', open);
+  document.getElementById('statsCloseBtn').addEventListener('click', close);
+  document.getElementById('exportBtn').addEventListener('click', exportData);
+  el.addEventListener('click', e => { if (e.target === el) close(); });
+
+  return { open, close };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HINT SYSTEM
+// ─────────────────────────────────────────────────────────────────────────
+// Provides a hint button that reveals the next cell in the solution if (AND
+// ONLY if) the user's current path is a valid prefix of `solution`. After
+// showing a hint, the button is disabled for 30 seconds; the remaining wait
+// is shown as the accent colour sweeping in from right to left across the
+// button face.
+//
+// States:
+//   ready   — normal button, clickable
+//   cooling — disabled, sweep animation running (::before expands right→left)
+//   wrong   — user's path diverges from solution; brief shake, no cooldown
+//
+// The hinted cell gets a pulsing outline (.hint class). It's cleared the
+// moment the user steps onto it in refresh() → onPathChange(), or when a
+// new puzzle starts.
+// ═══════════════════════════════════════════════════════════════════════════
+const HintSystem = (function() {
+  const btn = document.getElementById('hintBtn');
+  let hintedCell = null;   // [r, c] of the currently-displayed hint, or null
+  let cooldownTimer = null;
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  // Select the grid cell element for row r, col c.
+  function cellEl(r, c) {
+    return grid.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+  }
+
+  // Check whether `path` is a valid prefix of `solution`.
+  function pathIsOnTrack() {
+    for (let i = 0; i < path.length; i++) {
+      if (!solution[i]) return false;
+      if (path[i][0] !== solution[i][0] || path[i][1] !== solution[i][1]) return false;
+    }
+    return true;
+  }
+
+  // Return the next [r, c] in the solution after the current path length, or
+  // null if the path is off-track, already complete, or the puzzle is solved.
+  function nextHintCell() {
+    if (solved) return null;
+    if (!solution.length) return null;
+    if (path.length >= solution.length) return null;
+    if (!pathIsOnTrack()) return null;
+    return solution[path.length];
+  }
+
+  // ── Visual ───────────────────────────────────────────────────────────────
+
+  function clearHintCell() {
+    if (!hintedCell) return;
+    const el = cellEl(hintedCell[0], hintedCell[1]);
+    if (el) el.classList.remove('hint');
+    hintedCell = null;
+  }
+
+  function showHintCell([r, c]) {
+    clearHintCell();
+    const el = cellEl(r, c);
+    if (el) {
+      el.classList.add('hint');
+      hintedCell = [r, c];
+    }
+  }
+
+  // ── Cooldown ─────────────────────────────────────────────────────────────
+
+  function startCooldown() {
+    btn.disabled = true;
+    btn.classList.add('cooling');
+    if (cooldownTimer) clearTimeout(cooldownTimer);
+    cooldownTimer = setTimeout(endCooldown, 30_000);
+  }
+
+  function endCooldown() {
+    clearTimeout(cooldownTimer);
+    cooldownTimer = null;
+    btn.classList.remove('cooling');
+    btn.disabled = solved;
+  }
+
+  // ── Event hooks (called from refresh() and newPuzzle()) ──────────────────
+
+  function onPathChange() {
+    if (!hintedCell) return;
+    // If the user stepped onto the hinted cell, clear it — job done.
+    const last = path[path.length - 1];
+    if (last && last[0] === hintedCell[0] && last[1] === hintedCell[1]) {
+      clearHintCell(); return;
+    }
+    // If the user backtracked past the hint cell, clear it too.
+    const stillOnBoard = path.some(p => p[0] === hintedCell[0] && p[1] === hintedCell[1]);
+    if (!stillOnBoard) clearHintCell();
+  }
+
+  function onSolved() {
+    clearHintCell();
+    btn.disabled = true;  // no hints needed on a solved puzzle
+  }
+
+  function reset() {
+    clearHintCell();
+    if (cooldownTimer) clearTimeout(cooldownTimer);
+    cooldownTimer = null;
+    btn.classList.remove('cooling', 'wrong');
+    btn.disabled = false;
+  }
+
+  // ── Click ─────────────────────────────────────────────────────────────────
+
+  btn.addEventListener('click', () => {
+    if (btn.disabled || btn.classList.contains('cooling')) return;
+
+    const cell = nextHintCell();
+
+    if (!cell) {
+      // Path is off the solution — shake the button, spend no cooldown.
+      btn.classList.remove('wrong');
+      void btn.offsetWidth;   // flush reflow so re-adding re-triggers animation
+      btn.classList.add('wrong');
+      btn.addEventListener('animationend', () => btn.classList.remove('wrong'), { once: true });
+      return;
+    }
+
+    showHintCell(cell);
+    startCooldown();
+  });
+
+  return { onPathChange, onSolved, reset };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1: PROFILE
+// ─────────────────────────────────────────────────────────────────────────
+// Manages the user's identity + consent flags. Lives primarily in
+// localStorage (`trace.profile`). When the page is served over HTTP, every
+// change is also mirrored to the server via POST /api/users.
+//
+// Profile shape:
+//   { user_id, display_name, tos_version, tos_accepted_at,
+//     public_by_default, share_lifestyle_publicly,
+//     share_lifestyle_in_aggregate }
+//
+// Defaults (when the user creates a fresh profile): all consent flags 0
+// except for ToS acceptance which is encoded by tos_version being set to
+// the current value.
+// ═══════════════════════════════════════════════════════════════════════════
+const Profile = (function() {
+  const STORAGE_KEY = 'trace.profile';
+  const LEGACY_USER_ID_KEY = 'trace.user_id';   // from before phase 1
+  // The "current" ToS version baked into this client. If the server reports
+  // a higher version, we'll re-prompt the user. If we're offline, we use
+  // this value.
+  const CLIENT_TOS_VERSION = 1;
+  let current = null;
+  let serverTosVersion = CLIENT_TOS_VERSION;
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+
+  function persist(p) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    current = p;
+  }
+
+  // Initial load. If there's a legacy user_id (pre-phase-1), we keep it
+  // (so the user's existing local attempts are still owned by them) but
+  // mark them as needing onboarding to accept the new ToS.
+  function init() {
+    current = load();
+    if (!current) {
+      const legacy = localStorage.getItem(LEGACY_USER_ID_KEY);
+      if (legacy) {
+        // Skeleton profile; needsOnboarding() will return true because tos_version=0
+        current = {
+          user_id: legacy,
+          display_name: null,
+          tos_version: 0,
+          tos_accepted_at: 0,
+          public_by_default: 0,
+          share_lifestyle_publicly: 0,
+          share_lifestyle_in_aggregate: 0,
+        };
+      }
+    }
+  }
+
+  function get()      { return current; }
+  function getId()    { return current?.user_id; }
+  function getName()  { return current?.display_name || null; }
+  function publicByDefault() { return current?.public_by_default === 1; }
+
+  // Asynchronously try to fetch the server's ToS version so we know whether
+  // to force re-acceptance. Falls back silently to CLIENT_TOS_VERSION.
+  async function pollServerTos() {
+    if (!location.protocol.startsWith('http')) return CLIENT_TOS_VERSION;
+    try {
+      const r = await fetch('/api/health').then(r => r.json());
+      serverTosVersion = r.tos_version || CLIENT_TOS_VERSION;
+    } catch (e) {
+      serverTosVersion = CLIENT_TOS_VERSION;
+    }
+    return serverTosVersion;
+  }
+
+  function needsOnboarding() {
+    if (!current) return true;
+    if (!current.tos_accepted_at) return true;
+    if ((current.tos_version || 0) < serverTosVersion) return true;
+    return false;
+  }
+
+  // Generate a fresh anonymous UUID.
+  function generateId() {
+    return (crypto.randomUUID && crypto.randomUUID()) ||
+           ('u_' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+  }
+
+  // Create or update the profile. Saves locally AND posts to server (if HTTP).
+  async function save(updates) {
+    const now = Date.now();
+    const next = Object.assign({}, current || {}, updates);
+    if (!next.user_id) next.user_id = generateId();
+    // tos_accepted_at is set when tos_version changes (or first time)
+    if ((current?.tos_version || 0) !== next.tos_version) {
+      next.tos_accepted_at = now;
+    }
+    persist(next);
+    // Mirror to server. Fire-and-forget; failure leaves us with a valid
+    // local profile, which is enough for the single-file use case.
+    if (location.protocol.startsWith('http')) {
+      try {
+        await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(next),
+        });
+      } catch (e) { /* offline — local profile is authoritative */ }
+    }
+    return next;
+  }
+
+  // GDPR-style erasure. Clears local profile, attempts DB, and (when online)
+  // POSTs DELETE /api/users/<id>.
+  async function eraseAll() {
+    const id = getId();
+    // Local first
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_USER_ID_KEY);
+    localStorage.removeItem('trace.env');
+    // Wipe local sql.js DB
+    try {
+      const idb = await new Promise((res, rej) => {
+        const req = indexedDB.deleteDatabase('trace-db');
+        req.onsuccess = () => res();
+        req.onerror   = () => rej(req.error);
+        req.onblocked = () => res();  // proceed anyway
+      });
+    } catch (e) { /* best-effort */ }
+    // Server
+    if (id && location.protocol.startsWith('http')) {
+      try {
+        await fetch('/api/users/' + encodeURIComponent(id), { method: 'DELETE' });
+      } catch (e) { /* offline */ }
+    }
+    current = null;
+  }
+
+  return { init, get, getId, getName, publicByDefault, needsOnboarding,
+           save, eraseAll, pollServerTos,
+           CLIENT_TOS_VERSION: () => CLIENT_TOS_VERSION,
+           serverTosVersion: () => serverTosVersion };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1: ONBOARDING — gates the puzzle until ToS accepted
+// ─────────────────────────────────────────────────────────────────────────
+// Embedded fallback text. If the page is served by our Flask app and
+// /api/tos returns a current version, that text replaces these defaults
+// so the source of truth is the server.
+// ═══════════════════════════════════════════════════════════════════════════
+const TOS_FALLBACK_TEXT = `Trace is a puzzle game that records your attempts so you can track your performance over time and contribute to anonymous aggregate statistics about how environmental and lifestyle factors affect puzzle solving.
+
+By using Trace, you agree:
+
+  • An anonymous identifier (a random UUID) will be generated in your browser and stored locally. We never collect your email, name, or any directly-identifying information.
+
+  • Basic play data — puzzle seed, size, difficulty, your time, move counts — may be included in anonymous aggregate statistics.
+
+  • Optional lifestyle data (meals, sleep, stimulants, etc.) is held back from both public display AND aggregate statistics unless you explicitly opt in.
+
+  • You can change your preferences or erase all your data at any time from the Settings panel.`;
+
+const FAQ_FALLBACK = [
+  { q: 'What data do you collect?',
+    a: 'Times, moves, and backtracks for every solved puzzle. Optionally, location, weather, sunrise/sunset, and self-reported lifestyle context (last meal, sleep, etc.). Everything is keyed to an anonymous UUID generated in your browser.' },
+  { q: 'Will I be identified?',
+    a: 'No. Your anonymous UUID is only known to your browser. We never collect email, real name, or any other directly-identifying info. Display name (if you set one) is purely cosmetic and only shown alongside your puzzle times if you opted in.' },
+  { q: 'How is my data anonymised in aggregate statistics?',
+    a: "Aggregate statistics report numbers computed across many users, not individuals. Group results with fewer than 20 contributors are suppressed entirely. Your lifestyle data is excluded from aggregates entirely unless you specifically opt in." },
+  { q: 'Can I delete my data?',
+    a: "Yes. The Settings panel has 'Erase all my data' which clears your local copy and your server-side record." },
+];
+
+const Onboarding = (function() {
+  const el = document.getElementById('onboardingModal');
+  const tosBody = document.getElementById('onboardingTosBody');
+  const faqEl   = document.getElementById('onboardingFaq');
+  const acceptCb = document.getElementById('onbAcceptTos');
+  const publicCb = document.getElementById('onbPublicDefault');
+  const lifestylePubCb = document.getElementById('onbLifestylePublic');
+  const lifestyleAggCb = document.getElementById('onbLifestyleAgg');
+  const nameInput = document.getElementById('onbName');
+  const continueBtn = document.getElementById('onbContinueBtn');
+
+  function renderTos(text)  { tosBody.textContent = text || TOS_FALLBACK_TEXT; }
+  function renderFaq(items) {
+    const arr = items && items.length ? items : FAQ_FALLBACK;
+    faqEl.innerHTML = arr.map(({q, a}) =>
+      `<details><summary>${q}</summary><p>${a}</p></details>`
+    ).join('');
+  }
+
+  // Try to load server-side ToS/FAQ; if unavailable use embedded fallback.
+  async function loadTos() {
+    if (location.protocol.startsWith('http')) {
+      try {
+        const r = await fetch('/api/tos').then(r => r.json());
+        renderTos(r.text);
+        renderFaq(r.faq);
+        return r.version;
+      } catch (e) { /* fall through */ }
+    }
+    renderTos(TOS_FALLBACK_TEXT);
+    renderFaq(FAQ_FALLBACK);
+    return Profile.CLIENT_TOS_VERSION();
+  }
+
+  acceptCb.addEventListener('change', () => {
+    continueBtn.disabled = !acceptCb.checked;
+  });
+
+  continueBtn.addEventListener('click', async () => {
+    if (!acceptCb.checked) return;
+    continueBtn.disabled = true;
+    continueBtn.textContent = 'Saving…';
+    const tosVersion = Math.max(
+      Profile.CLIENT_TOS_VERSION(),
+      Profile.serverTosVersion()
+    );
+    await Profile.save({
+      display_name: nameInput.value.trim() || null,
+      tos_version: tosVersion,
+      public_by_default: publicCb.checked ? 1 : 0,
+      share_lifestyle_publicly: lifestylePubCb.checked ? 1 : 0,
+      share_lifestyle_in_aggregate: lifestyleAggCb.checked ? 1 : 0,
+    });
+    el.hidden = true;
+  });
+
+  async function show() {
+    // If they're returning with a stale profile, prefill what we know
+    const p = Profile.get();
+    if (p) {
+      nameInput.value = p.display_name || '';
+      publicCb.checked       = p.public_by_default === 1;
+      lifestylePubCb.checked = p.share_lifestyle_publicly === 1;
+      lifestyleAggCb.checked = p.share_lifestyle_in_aggregate === 1;
+    }
+    acceptCb.checked = false;
+    continueBtn.disabled = true;
+    continueBtn.textContent = 'Continue';
+    el.hidden = false;
+    await loadTos();
+  }
+
+  return { show };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1: SETTINGS PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+const SettingsModal = (function() {
+  const el           = document.getElementById('settingsModal');
+  const idBlock      = document.getElementById('settingsIdBlock');
+  const nameInput    = document.getElementById('setName');
+  const publicCb     = document.getElementById('setPublicDefault');
+  const lifestylePubCb = document.getElementById('setLifestylePublic');
+  const lifestyleAggCb = document.getElementById('setLifestyleAgg');
+
+  function render() {
+    const p = Profile.get();
+    if (!p) return;
+    nameInput.value = p.display_name || '';
+    publicCb.checked       = p.public_by_default === 1;
+    lifestylePubCb.checked = p.share_lifestyle_publicly === 1;
+    lifestyleAggCb.checked = p.share_lifestyle_in_aggregate === 1;
+    idBlock.innerHTML = `
+      <div class="env-row">
+        <span class="env-l">Your ID</span>
+        <span class="env-v" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">${p.user_id}</span>
+      </div>
+      <div class="env-row">
+        <span class="env-l">Mode</span>
+        <span class="env-v">${location.protocol.startsWith('http') ? 'Synced to server' : 'Local only (file://)'}</span>
+      </div>
+      <div class="env-row">
+        <span class="env-l">ToS</span>
+        <span class="env-v">v${p.tos_version || 0} accepted ${p.tos_accepted_at ? new Date(p.tos_accepted_at).toLocaleDateString() : '—'}</span>
+      </div>`;
+  }
+
+  async function save() {
+    await Profile.save({
+      display_name: nameInput.value.trim() || null,
+      public_by_default: publicCb.checked ? 1 : 0,
+      share_lifestyle_publicly: lifestylePubCb.checked ? 1 : 0,
+      share_lifestyle_in_aggregate: lifestyleAggCb.checked ? 1 : 0,
+    });
+    el.hidden = true;
+  }
+
+  async function erase() {
+    const ok = confirm('Erase your local profile, all saved attempts on this device, AND your server-side record? This cannot be undone.');
+    if (!ok) return;
+    await Profile.eraseAll();
+    el.hidden = true;
+    // Force a fresh onboarding
+    location.reload();
+  }
+
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    render();
+    el.hidden = false;
+  });
+  document.getElementById('settingsCloseBtn').addEventListener('click', () => el.hidden = true);
+  document.getElementById('settingsSaveBtn').addEventListener('click', save);
+  document.getElementById('settingsEraseBtn').addEventListener('click', erase);
+  el.addEventListener('click', e => { if (e.target === el) el.hidden = true; });
+
+  return { render };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASES 2–4: LEADERBOARD (tabs: This Puzzle / Daily / Global / Personal / Insights)
+// ─────────────────────────────────────────────────────────────────────────
+// Only meaningful when there's a server to ask. In the single-file
+// standalone case we show a friendly "leaderboard requires a server" stub.
+// ═══════════════════════════════════════════════════════════════════════════
+const Leaderboard = (function() {
+  const el     = document.getElementById('leaderboardModal');
+  const pane   = document.getElementById('lbPane');
+  const tabs   = el.querySelectorAll('.lb-tab');
+  let activeTab = 'puzzle';
+
+  function isOnline() { return location.protocol.startsWith('http'); }
+
+  function fmtTime(ms) {
+    if (ms == null) return '—';
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function offlineStub() {
+    pane.innerHTML = `<div class="lb-empty">Leaderboards need a server.<br><br>Open this app via the included Flask server to see standings.<br>(See README for setup.)</div>`;
+  }
+
+  async function fetchJSON(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  }
+
+  // ── Pane: This puzzle ───────────────────────────────────
+  async function renderPuzzle() {
+    pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
+    try {
+      const url = `/api/leaderboard/puzzle?seed=${encodeURIComponent(SEED)}&size=${SIZE}&difficulty=${DIFFICULTY}&limit=50`;
+      const data = await fetchJSON(url);
+      const meta = `Seed <strong>${data.seed}</strong> · ${data.size}×${data.size} · ${data.difficulty}`;
+      if (!data.rows.length) {
+        pane.innerHTML = `<div class="lb-puzzle-meta">${meta}</div><div class="lb-empty">No one's logged a public solve on this puzzle yet.<br>Solve it and check "Make this attempt public" to be first.</div>`;
+        return;
+      }
+      const rows = data.rows.map((r, i) =>
+        `<div class="lb-row">
+          <div class="lb-rank ${i < 3 ? 'top' : ''}">${i + 1}</div>
+          <div>
+            <div class="lb-name">${r.display_name || 'anonymous'}</div>
+            <div class="lb-meta">${r.best_moves} moves · ${r.best_backtracks} bt · ${r.attempt_count} attempt${r.attempt_count === 1 ? '' : 's'}</div>
+          </div>
+          <div class="lb-time">${fmtTime(r.best_ms)}</div>
+        </div>`
+      ).join('');
+      pane.innerHTML = `<div class="lb-puzzle-meta">${meta}</div>${rows}`;
+    } catch (e) {
+      pane.innerHTML = `<div class="lb-empty">Couldn't load leaderboard: ${e.message}</div>`;
+    }
+  }
+
+  // ── Pane: Today's daily ─────────────────────────────────
+  async function renderDaily() {
+    pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
+    try {
+      const data = await fetchJSON('/api/leaderboard/daily');
+      const p = data.puzzle;
+      const meta = p
+        ? `<div class="lb-puzzle-meta">Today's challenge · ${p.date} · ${p.size}×${p.size} · ${p.difficulty} <button class="link-btn" id="lbPlayDailyBtn" style="float:right;">play this →</button></div>`
+        : `<div class="lb-puzzle-meta">No daily puzzle set</div>`;
+      let inner = meta;
+      if (!data.rows.length) {
+        inner += `<div class="lb-empty">No public solves yet today.<br>Tap "play this" to be the first.</div>`;
+      } else {
+        inner += data.rows.map((r, i) =>
+          `<div class="lb-row">
+            <div class="lb-rank ${i < 3 ? 'top' : ''}">${i + 1}</div>
+            <div>
+              <div class="lb-name">${r.display_name || 'anonymous'}</div>
+              <div class="lb-meta">${r.best_moves} moves · ${r.best_backtracks} bt</div>
+            </div>
+            <div class="lb-time">${fmtTime(r.best_ms)}</div>
+          </div>`
+        ).join('');
+      }
+      pane.innerHTML = inner;
+      // Wire the "play this" link
+      const playBtn = document.getElementById('lbPlayDailyBtn');
+      if (playBtn && p) {
+        playBtn.addEventListener('click', () => {
+          el.hidden = true;
+          loadPuzzleByParams(p.seed, p.size, p.difficulty);
+        });
+      }
+    } catch (e) {
+      pane.innerHTML = `<div class="lb-empty">Couldn't load daily: ${e.message}</div>`;
+    }
+  }
+
+  // ── Pane: Global aggregates ─────────────────────────────
+  async function renderGlobal() {
+    pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
+    try {
+      // Pull a few per-(size, difficulty) aggregates in parallel
+      const combos = [
+        [5, 'tricky'], [5, 'knotty'],
+        [6, 'tricky'], [6, 'knotty'], [6, 'fiendish'],
+        [7, 'tricky'], [7, 'knotty'], [7, 'fiendish'],
+        [8, 'tricky'], [8, 'knotty'],
+      ];
+      const results = await Promise.all(combos.map(([s, d]) =>
+        fetchJSON(`/api/aggregates?size=${s}&difficulty=${d}`).then(r => ({s, d, r}))
+      ));
+      const overall = await fetchJSON('/api/aggregates');
+
+      let html = `
+        <div class="lb-puzzle-meta">Across all public solves</div>
+        <div class="agg-grid">
+          <div class="stat-cell"><div class="stat-v">${overall.count || 0}</div><div class="stat-l">Solves</div></div>
+          <div class="stat-cell"><div class="stat-v">${fmtTime(overall.median_ms)}</div><div class="stat-l">Median</div></div>
+          <div class="stat-cell"><div class="stat-v">${fmtTime(overall.fastest_ms)}</div><div class="stat-l">Fastest</div></div>
+        </div>
+        <div class="lb-puzzle-meta">Per (size × difficulty) — median solve time</div>`;
+      results.forEach(({s, d, r}) => {
+        if (!r.count) return;
+        html += `<div class="lb-row">
+          <div class="lb-rank">·</div>
+          <div>
+            <div class="lb-name">${s}×${s} ${d}</div>
+            <div class="lb-meta">n=${r.count} · p25 ${fmtTime(r.p25_ms)} · p75 ${fmtTime(r.p75_ms)}</div>
+          </div>
+          <div class="lb-time">${fmtTime(r.median_ms)}</div>
+        </div>`;
+      });
+      pane.innerHTML = html;
+    } catch (e) {
+      pane.innerHTML = `<div class="lb-empty">Couldn't load global stats: ${e.message}</div>`;
+    }
+  }
+
+  // ── Pane: Personal insights ─────────────────────────────
+  async function renderPersonal() {
+    pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
+    try {
+      const data = await fetchJSON('/api/insights/personal/' + encodeURIComponent(Profile.getId()));
+      if (!data.total_solved) {
+        pane.innerHTML = `<div class="lb-empty">No solved attempts logged yet on this account.</div>`;
+        return;
+      }
+      let html = `<div class="lb-puzzle-meta">Your ${data.total_solved} solved attempt${data.total_solved === 1 ? '' : 's'}, sliced</div>`;
+      Object.entries(data.slices).forEach(([col, groups]) => {
+        html += `<div class="personal-slice"><h4>By ${col.replace(/_/g, ' ')}</h4>`;
+        const entries = Object.entries(groups).sort((a, b) => a[1].median_ms - b[1].median_ms);
+        const maxV = Math.max(...entries.map(e => e[1].median_ms));
+        entries.forEach(([label, stats]) => {
+          const pct = (stats.median_ms / maxV) * 100;
+          html += `
+            <div class="insight-bar-row">
+              <div class="insight-bar-label">${label}</div>
+              <div class="insight-bar-bg"><div class="insight-bar-fill" style="width:${pct}%;"></div></div>
+              <div class="insight-bar-v">${fmtTime(stats.median_ms)} <span style="color:var(--ink-soft); font-size:10px; font-weight:400;">·n=${stats.count}</span></div>
+            </div>`;
+        });
+        html += `</div>`;
+      });
+      pane.innerHTML = html;
+    } catch (e) {
+      pane.innerHTML = `<div class="lb-empty">Couldn't load personal insights: ${e.message}</div>`;
+    }
+  }
+
+  // ── Pane: Insights slicer (phase 4) ─────────────────────
+  const SLICE_OPTIONS = [
+    ['weather_condition',     'Weather condition'],
+    ['location_label',        'Location (label)'],
+    ['hour_of_day',           'Hour of day'],
+    ['day_of_week',           'Day of week'],
+    ['last_meal_desc',        'Last meal'],
+    ['last_stimulant_desc',   'Last stimulant'],
+    ['last_intoxicant_desc',  'Last intoxicant'],
+    ['last_exercise_desc',    'Last exercise'],
+    ['woke_at',               'Wake time'],
+    ['slept_at',              'Bedtime'],
+    ['sleep_quality_desc',    'Sleep quality'],
+  ];
+  const METRIC_OPTIONS = [
+    ['median_ms',       'Median time'],
+    ['mean_ms',         'Mean time'],
+    ['best_ms',         'Best time'],
+    ['count',           'Count'],
+    ['mean_backtracks', 'Mean backtracks'],
+  ];
+
+  function renderInsightsControls() {
+    const sliceOpts = SLICE_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    const metricOpts = METRIC_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    return `
+      <div class="insight-controls">
+        <div>
+          <label>Slice by</label>
+          <select class="form-sel" id="insightSlice">${sliceOpts}</select>
+        </div>
+        <div>
+          <label>Metric</label>
+          <select class="form-sel" id="insightMetric">${metricOpts}</select>
+        </div>
+        <div>
+          <label>Size</label>
+          <select class="form-sel" id="insightSize">
+            <option value="">All</option><option value="5">5×5</option>
+            <option value="6">6×6</option><option value="7">7×7</option><option value="8">8×8</option>
+          </select>
+        </div>
+        <div>
+          <label>Difficulty</label>
+          <select class="form-sel" id="insightDifficulty">
+            <option value="">All</option>
+            <option value="gentle">Gentle</option><option value="tricky">Tricky</option>
+            <option value="knotty">Knotty</option><option value="fiendish">Fiendish</option>
+          </select>
+        </div>
+        <div>
+          <label>Min samples</label>
+          <select class="form-sel" id="insightMinSamples">
+            <option value="1">1+ (debug)</option><option value="5">5+</option>
+            <option value="10">10+</option><option value="20" selected>20+ (default)</option>
+            <option value="50">50+</option>
+          </select>
+        </div>
+        <div style="display: flex; align-items: end;">
+          <button class="btn primary" id="insightRunBtn" style="width: 100%;">Run</button>
+        </div>
+      </div>
+      <div class="insight-note">Groups with fewer contributors than the threshold are suppressed entirely to keep individuals un-identifiable. Lifestyle slices include only attempts from users who opted in to lifestyle aggregation.</div>
+      <div id="insightResults"></div>`;
+  }
+
+  async function runInsight() {
+    const slice = document.getElementById('insightSlice').value;
+    const metric = document.getElementById('insightMetric').value;
+    const size = document.getElementById('insightSize').value;
+    const difficulty = document.getElementById('insightDifficulty').value;
+    const minSamples = document.getElementById('insightMinSamples').value;
+    const out = document.getElementById('insightResults');
+    out.innerHTML = `<div class="lb-empty">Computing…</div>`;
+    try {
+      const params = new URLSearchParams({
+        slice_by: slice, metric, min_samples: minSamples,
+      });
+      if (size) params.set('size', size);
+      if (difficulty) params.set('difficulty', difficulty);
+      const data = await fetchJSON('/api/insights?' + params.toString());
+      const buckets = data.buckets || {};
+      const entries = Object.entries(buckets);
+      if (!entries.length) {
+        const reason = data.buckets_below_threshold
+          ? `${data.buckets_below_threshold} group(s) had data but fewer than ${minSamples} contributors (suppressed for privacy).`
+          : `No matching attempts.`;
+        out.innerHTML = `<div class="lb-empty">No results. ${reason}</div>`;
+        return;
+      }
+      // For time metrics, smaller is better (left-aligned bars). For count, larger is "better".
+      const isTime = metric.endsWith('_ms');
+      const valFmt = (v) => isTime ? fmtTime(v) : (typeof v === 'number' ? v.toFixed(metric === 'mean_backtracks' ? 2 : 0) : v);
+      entries.sort((a, b) => isTime ? a[1] - b[1] : b[1] - a[1]);
+      const maxV = Math.max(...entries.map(e => Math.abs(e[1] || 0)));
+      out.innerHTML = entries.map(([label, value]) => {
+        const pct = maxV ? (Math.abs(value) / maxV) * 100 : 0;
+        return `<div class="insight-bar-row">
+          <div class="insight-bar-label">${label}</div>
+          <div class="insight-bar-bg"><div class="insight-bar-fill" style="width:${pct}%;"></div></div>
+          <div class="insight-bar-v">${valFmt(value)}</div>
+        </div>`;
+      }).join('') + `<div class="insight-note">${data.total_rows_considered} rows considered. ${data.buckets_below_threshold} group(s) suppressed.</div>`;
+    } catch (e) {
+      out.innerHTML = `<div class="lb-empty">Query failed: ${e.message}</div>`;
+    }
+  }
+
+  function renderInsights() {
+    pane.innerHTML = renderInsightsControls();
+    document.getElementById('insightRunBtn').addEventListener('click', runInsight);
+    runInsight();
+  }
+
+  // ── Tab switching ───────────────────────────────────────
+  function switchTo(tab) {
+    activeTab = tab;
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    if (!isOnline()) return offlineStub();
+    switch (tab) {
+      case 'puzzle':   return renderPuzzle();
+      case 'daily':    return renderDaily();
+      case 'global':   return renderGlobal();
+      case 'personal': return renderPersonal();
+      case 'insights': return renderInsights();
+    }
+  }
+
+  tabs.forEach(t => t.addEventListener('click', () => switchTo(t.dataset.tab)));
+
+  function open(initialTab) {
+    el.hidden = false;
+    switchTo(initialTab || activeTab);
+  }
+  function close() { el.hidden = true; }
+
+  document.getElementById('leaderboardBtn').addEventListener('click', () => open('puzzle'));
+  document.getElementById('lbCloseBtn').addEventListener('click', close);
+  el.addEventListener('click', e => { if (e.target === el) close(); });
+
+  return { open, close };
+})();
+
+// "Today's" link in masthead: load today's daily puzzle directly
+document.getElementById('dailyBtn').addEventListener('click', async () => {
+  if (!location.protocol.startsWith('http')) {
+    // Offline: derive locally using the same rotation logic as the server.
+    // Day-of-week → (size, difficulty), seed = YYYY-MM-DD
+    const today = new Date();
+    const dow = (today.getDay() + 6) % 7;  // JS: Sun=0..Sat=6, normalise to Mon=0
+    const ROTATION = {
+      0: [6, 'tricky'], 1: [6, 'knotty'], 2: [7, 'tricky'],
+      3: [7, 'knotty'], 4: [6, 'fiendish'], 5: [7, 'fiendish'],
+      6: [8, 'tricky'],
+    };
+    const [size, diff] = ROTATION[dow];
+    const dateStr = today.toISOString().slice(0, 10);
+    loadPuzzleByParams(dateStr, size, diff);
+    return;
+  }
+  // Online: ask server
+  try {
+    const r = await fetch('/api/daily').then(r => r.json());
+    if (r && r.seed) loadPuzzleByParams(r.seed, r.size, r.difficulty);
+  } catch (e) { /* silent */ }
+});
+
+// Helper used by "today's daily" and "play this puzzle" links from the
+// leaderboard — load a specific puzzle without a page reload.
+function loadPuzzleByParams(seed, size, difficulty) {
+  SEED = seed; SIZE = size; DIFFICULTY = difficulty;
+  document.getElementById('sizeSel').value = String(size);
+  document.getElementById('diffSel').value = difficulty;
+  newPuzzle({ fromURL: true });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOOT
+// ─────────────────────────────────────────────────────────────────────────
+// Order matters:
+//   1. parseURL + ensure SEED — so the puzzle is well-defined regardless
+//   2. Profile.init() — pulls user profile from localStorage; this is sync
+//   3. pollServerTos() — if online, learn current ToS version (needed so
+//      needsOnboarding() returns the right answer for re-acceptance cases)
+//   4. If onboarding needed → show modal. The modal's overlay blocks puzzle
+//      interaction; it doesn't block puzzle GENERATION, so the puzzle is
+//      ready behind the modal when the user dismisses it.
+//   5. DB.init() — fire-and-forget; puzzle works before DB is ready
+//   6. newPuzzle — generate and render
+// ═══════════════════════════════════════════════════════════════════════════
+async function boot() {
+  parseURL();
+  if (!SEED) SEED = randomSeedString();
+  Profile.init();
+  await Profile.pollServerTos();
+  if (Profile.needsOnboarding()) Onboarding.show();
+  DB.init();  // fire-and-forget; the puzzle works even before the DB is ready
+  newPuzzle({ fromURL: true });
+}
+boot();
+</script>
+</body>
+</html>

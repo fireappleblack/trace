@@ -1,0 +1,10 @@
+# Trace server dependencies
+#
+# Flask is the only hard requirement. psycopg2-binary is only needed if
+# you set DATABASE_URL to a postgres:// URL — leave it commented out for
+# SQLite-only deployments to keep the install lean.
+
+Flask>=3.0,<4.0
+
+# Uncomment for Postgres support:
+# psycopg2-binary>=2.9,<3.0
