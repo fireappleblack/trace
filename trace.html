@@ -241,10 +241,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'Fraunces', serif;
+    /* Clean proportional sans-serif for legibility. Tabular, lining figures
+       keep multi-digit numbers evenly weighted and unambiguous. */
+    font-family: 'Albert Sans', system-ui, -apple-system, sans-serif;
     font-weight: 700;
-    font-variation-settings: 'opsz' 144;
-    font-size: clamp(15px, 4.5vw, 22px);
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: -0.01em;
+    font-size: clamp(16px, 4.7vw, 23px);
     pointer-events: none;
     line-height: 1;
     box-shadow: 0 2px 0 rgba(28,24,19,0.18);
@@ -2078,25 +2081,39 @@ function handleStart(x, y) {
   if (solved) return;
   const cell = getCellAt(x, y);
   if (!cell) return;
-  // Tap an existing path cell → truncate to it. We count this as a backtrack
-  // since the path got shorter.
-  const idx = path.findIndex(p => p[0] === cell[0] && p[1] === cell[1]);
-  if (idx >= 0) {
-    if (idx < path.length - 1) Attempts.recordBacktrack();
-    path = path.slice(0, idx + 1); drawing = true; refresh(); return;
+
+  // Begin a fresh path at the start cell (#1).
+  if (path.length === 0) {
+    if (isStart(cell)) {
+      path = [cell]; drawing = true;
+      Attempts.recordMove();
+      refresh();
+    }
+    return;
   }
-  // Starting fresh on cell #1
-  if (path.length === 0 && isStart(cell)) {
-    path = [cell]; drawing = true;
-    Attempts.recordMove();
-    refresh(); return;
+
+  const head = path[path.length - 1];
+
+  // Press on the current head → arm dragging so the user can extend forward
+  // or retrace backward. The path itself is unchanged by the press.
+  if (cell[0] === head[0] && cell[1] === head[1]) {
+    drawing = true;
+    return;
   }
-  // Extending an existing path by tap-adjacent
-  if (path.length > 0 && canAdd(cell)) {
+
+  // Press on an addable adjacent empty cell → extend by one (tap-to-extend),
+  // and arm dragging so a continued drag keeps drawing.
+  if (canAdd(cell)) {
     path.push(cell); drawing = true;
     Attempts.recordMove();
     refresh();
+    return;
   }
+
+  // Press anywhere else — a cell in the middle of the path, a far-off empty
+  // cell, or across a wall — does NOTHING. No truncation on a bare tap, so an
+  // accidental click/touch can't wipe your work. To undo, retrace by dragging
+  // back along the path, or use the Undo / Clear buttons.
 }
 function handleMove(x, y) {
   if (!drawing) return;
@@ -2104,7 +2121,10 @@ function handleMove(x, y) {
   if (!cell) return;
   const last = path[path.length - 1];
   if (!last || (last[0] === cell[0] && last[1] === cell[1])) return;
-  // Drag back onto the immediately-previous cell — single-step backtrack
+  // Retrace: drag back onto the immediately-previous cell undoes one step.
+  // This is the ONLY way a drag shortens the path — you have to actually
+  // retrace. (Earlier this also jumped back to any earlier cell the finger
+  // crossed, which on a winding path could wipe a lot of work by accident.)
   if (path.length >= 2) {
     const prev = path[path.length - 2];
     if (prev[0] === cell[0] && prev[1] === cell[1]) {
@@ -2114,20 +2134,16 @@ function handleMove(x, y) {
       return;
     }
   }
-  // Drag back onto an earlier cell — truncates the tail
-  const exist = path.findIndex(p => p[0] === cell[0] && p[1] === cell[1]);
-  if (exist >= 0) {
-    path = path.slice(0, exist + 1);
-    Attempts.recordBacktrack();
-    refresh();
-    return;
-  }
-  // New cell entered → forward move
+  // Forward: enter a new, addable cell.
   if (canAdd(cell)) {
     path.push(cell);
     Attempts.recordMove();
     refresh();
+    return;
   }
+  // Any other move — onto a non-previous earlier cell, or across a wall — is
+  // ignored. No jumping or truncation, so a winding path that crosses near
+  // itself won't lose its tail if your finger strays.
 }
 function handleEnd() { drawing = false; }
 

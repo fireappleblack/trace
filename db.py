@@ -16,6 +16,13 @@ Why hand-rolled instead of SQLAlchemy?
     abstraction than this earns.
   • Every SQL statement is right there in the code, easy to read.
 
+Connection handling: the Database class (below) owns connections. For SQLite
+it keeps one long-lived connection (WAL mode). For Postgres it keeps a small
+per-process pool, validates connections on borrow, and discards poisoned ones
+on return — so the app survives the Postgres container starting late or
+restarting under it. Callers borrow a connection per request and pass it to
+the free functions, which are unchanged and backend-agnostic.
+
 Privacy filtering happens here too. Aggregate / leaderboard queries JOIN
 users and filter by the relevant consent flag (is_public,
 share_lifestyle_in_aggregate, share_lifestyle_publicly) so privacy is
@@ -111,6 +118,13 @@ def open_db():
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys = ON')
+        # WAL lets readers and a writer coexist without blocking each other,
+        # and busy_timeout makes a writer wait (up to 5s) for a lock instead
+        # of failing immediately with "database is locked". Together these
+        # make SQLite tolerate multiple gunicorn workers in one container.
+        conn.execute('PRAGMA journal_mode = WAL')
+        conn.execute('PRAGMA busy_timeout = 5000')
+        conn.execute('PRAGMA synchronous = NORMAL')
         return conn, 'sqlite', '?'
 
     if parsed.scheme in ('postgres', 'postgresql'):
@@ -123,17 +137,160 @@ def open_db():
                 "Add psycopg2-binary to your requirements (see requirements.txt)."
             ) from e
         conn = psycopg2.connect(url)
-        conn._trace_cursor_factory = psycopg2.extras.RealDictCursor
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
         return conn, 'postgres', '%s'
 
     raise ValueError(f"Unsupported DATABASE_URL scheme: {parsed.scheme!r}")
 
 
 def cursor(conn, backend):
-    """Backend-agnostic cursor factory yielding dict-style rows."""
-    if backend == 'postgres':
-        return conn.cursor(cursor_factory=conn._trace_cursor_factory)
+    """Backend-agnostic cursor factory yielding dict-style rows.
+
+    For Postgres, the connection's own cursor_factory is set to RealDictCursor
+    (in open_db / Database.borrow), so a plain conn.cursor() already yields
+    dict rows.
+    """
     return conn.cursor()
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Database — connection manager (the thing app.py actually holds)
+# ═════════════════════════════════════════════════════════════════════════
+# Owns connections so individual requests don't have to. Two backends, two
+# strategies:
+#
+#   SQLite   — one long-lived connection in WAL mode, shared within the
+#              process. borrow() hands it out, release() is a no-op. (Each
+#              gunicorn worker is its own process and so has its own.)
+#
+#   Postgres — a small ThreadedConnectionPool per process. borrow() checks a
+#              connection is alive (cheap SELECT 1) before handing it out and
+#              recycles it if not; release() rolls back any leftover
+#              transaction state and returns it to the pool, or discards it if
+#              the request errored. This is what lets the app tolerate the
+#              dedicated Postgres container starting after it or restarting
+#              underneath it.
+#
+# connect() blocks with retries at startup so the app waits for Postgres to
+# accept connections rather than crash-looping.
+# ═════════════════════════════════════════════════════════════════════════
+
+class Database:
+    def __init__(self, url=None):
+        self.url = url or os.environ.get('DATABASE_URL', 'sqlite:///trace.db')
+        scheme = urlparse(self.url).scheme
+        if scheme == 'sqlite':
+            self.backend = 'sqlite'
+            self.placeholder = '?'
+        elif scheme in ('postgres', 'postgresql'):
+            self.backend = 'postgres'
+            self.placeholder = '%s'
+        else:
+            raise ValueError(f"Unsupported DATABASE_URL scheme: {scheme!r}")
+        self._sqlite_conn = None
+        self._pool = None
+
+    # ── Startup ────────────────────────────────────────────────────────────
+    def connect(self, retries=30, delay=2.0, minconn=1, maxconn=5):
+        """
+        Establish the SQLite connection or build the Postgres pool. For
+        Postgres, retry up to `retries` times (delay seconds apart) so the app
+        tolerates the database container not being ready yet.
+        """
+        if self.backend == 'sqlite':
+            # Reuse open_db()'s SQLite setup (WAL, busy_timeout, etc.).
+            self._sqlite_conn, _, _ = open_db()
+            return
+
+        import psycopg2
+        from psycopg2.pool import ThreadedConnectionPool
+        last_err = None
+        for attempt in range(1, retries + 1):
+            try:
+                self._pool = ThreadedConnectionPool(minconn, maxconn, dsn=self.url)
+                # Prove it actually works, not just that the pool object built.
+                conn = self._pool.getconn()
+                try:
+                    with conn.cursor() as c:
+                        c.execute('SELECT 1')
+                finally:
+                    self._pool.putconn(conn)
+                print(f"[trace] connected to Postgres (attempt {attempt})")
+                return
+            except Exception as e:  # psycopg2.OperationalError and friends
+                last_err = e
+                if self._pool is not None:
+                    try: self._pool.closeall()
+                    except Exception: pass
+                    self._pool = None
+                print(f"[trace] Postgres not ready (attempt {attempt}/{retries}): {e}")
+                time.sleep(delay)
+        raise RuntimeError(
+            f"Could not connect to Postgres after {retries} attempts: {last_err}"
+        )
+
+    # ── Per-request borrow / return ──────────────────────────────────────────
+    def _alive(self, conn):
+        try:
+            with conn.cursor() as c:
+                c.execute('SELECT 1')
+            return True
+        except Exception:
+            return False
+
+    def borrow(self):
+        """Get a connection to use for one request."""
+        if self.backend == 'sqlite':
+            return self._sqlite_conn
+        import psycopg2.extras
+        conn = self._pool.getconn()
+        if not self._alive(conn):
+            # Stale (e.g. Postgres restarted while this conn sat idle in the
+            # pool). Drop it and grab a fresh one.
+            try: self._pool.putconn(conn, close=True)
+            except Exception: pass
+            conn = self._pool.getconn()
+        # Make every cursor from this connection yield dict-style rows, which
+        # is what the DAL's dict(row) expects. cursor_factory is a writable
+        # attribute on psycopg2 connections.
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        return conn
+
+    def release(self, conn, failed=False):
+        """Return a connection after a request."""
+        if self.backend == 'sqlite':
+            return  # keep the shared WAL connection alive
+        if conn is None:
+            return
+        if failed:
+            try: self._pool.putconn(conn, close=True)
+            except Exception: pass
+            return
+        try:
+            # Clear any leftover/aborted transaction state before reuse. The
+            # DAL commits its own writes, so this only discards uncommitted
+            # reads — never committed data.
+            conn.rollback()
+            self._pool.putconn(conn)
+        except Exception:
+            try: self._pool.putconn(conn, close=True)
+            except Exception: pass
+
+    # ── Schema ───────────────────────────────────────────────────────────────
+    def init_schema(self):
+        conn = self.borrow()
+        try:
+            init_schema(conn, self.backend)
+        finally:
+            self.release(conn)
+
+    def close(self):
+        if self.backend == 'sqlite' and self._sqlite_conn is not None:
+            try: self._sqlite_conn.close()
+            except Exception: pass
+        elif self._pool is not None:
+            try: self._pool.closeall()
+            except Exception: pass
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -150,19 +307,33 @@ ATTEMPTS_V2_COLUMNS = [
     ('tos_version',  'INTEGER NOT NULL DEFAULT 1', 'INTEGER NOT NULL DEFAULT 1'),
 ]
 
-def init_schema(conn, backend, schema_path='schema.sql'):
+def init_schema(conn, backend, schema_path=None):
     """
     Apply schema.sql and run additive migrations.
     Idempotent — safe to call on every server start.
+
+    schema_path defaults to schema.sql sitting next to this module, so it
+    works regardless of the process's current working directory (important
+    under gunicorn / in a container).
     """
+    if schema_path is None:
+        schema_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'schema.sql')
     with open(schema_path) as f:
         sql = f.read()
 
     if backend == 'postgres':
+        # 1) Autoincrement PK → SERIAL.
         sql = sql.replace(
             'INTEGER PRIMARY KEY AUTOINCREMENT',
             'SERIAL PRIMARY KEY'
         )
+        # 2) Remaining INTEGER columns → BIGINT. Several columns store unix
+        #    timestamps in milliseconds (~1.7e12), which overflow Postgres's
+        #    32-bit INTEGER (max ~2.1e9). SQLite's INTEGER is variable-width so
+        #    it never shows there, but Postgres raises "integer out of range".
+        #    BIGINT is a safe superset for every integer column we have, so a
+        #    blanket swap (after the SERIAL rewrite above) is correct.
+        sql = sql.replace(' INTEGER', ' BIGINT')
 
     cur = cursor(conn, backend)
     if backend == 'sqlite':

@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Trace — dedicated PostgreSQL database (apply this FIRST)
+# ─────────────────────────────────────────────────────────────────────────
+#   kubectl apply -f trace-server/deploy/postgres.yaml
+#
+# This is a standalone, single-instance Postgres for Trace only — not shared
+# with any other app. It owns the `trace` namespace, its credentials Secret,
+# a headless Service for stable DNS, and a StatefulSet with its own
+# PersistentVolumeClaim.
+#
+# The app (trace-k8s.yaml) reads DATABASE_URL from the Secret defined here and
+# connects to the Service name `trace-postgres`.
+#
+# ⚠️  CHANGE THE PASSWORD before applying anywhere you care about. Edit
+#     POSTGRES_PASSWORD and the matching password inside DATABASE_URL below
+#     (both must agree), or generate a Secret out-of-band instead of checking
+#     one in.
+# ─────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trace
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trace-db
+  namespace: trace
+type: Opaque
+stringData:
+  POSTGRES_USER: trace
+  POSTGRES_DB: trace
+  POSTGRES_PASSWORD: "},6~=B&2,9=Z+[h"
+  # The app consumes this single URL. Host = the Service name below; the
+  # password here MUST match POSTGRES_PASSWORD above.
+  DATABASE_URL: "postgresql://trace:},6~=B&2,9=Z+[h@trace-postgres:5432/trace"
+---
+# Headless Service (clusterIP: None) — gives the StatefulSet pod stable DNS at
+# trace-postgres.trace.svc.cluster.local. With one pod this name resolves to
+# that pod's IP, which is exactly what the app connects to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-postgres
+  namespace: trace
+  labels:
+    app: trace-postgres
+spec:
+  clusterIP: None
+  selector:
+    app: trace-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trace-postgres
+  namespace: trace
+  labels:
+    app: trace-postgres
+spec:
+  serviceName: trace-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trace-postgres
+  template:
+    metadata:
+      labels:
+        app: trace-postgres
+    spec:
+      # The official postgres image starts as root and steps down to the
+      # postgres user (uid 999) internally. fsGroup makes the mounted data
+      # volume writable by that user.
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: trace-db   # provides POSTGRES_USER/PASSWORD/DB
+          env:
+            # Keep the actual data in a subdirectory of the mount. The image
+            # recommends this so it never collides with a volume root that
+            # isn't empty (e.g. a lost+found directory).
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "trace", "-d", "trace"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "trace", "-d", "trace"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+  # Each pod gets its own PVC from this template. local-path (the k3s default
+  # StorageClass) provisions it automatically on the node.
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

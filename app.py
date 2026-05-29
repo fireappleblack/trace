@@ -34,16 +34,72 @@ Routes:
 
 import os
 import traceback
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_file, g
 
 import db as DB
 
 
 app = Flask(__name__, static_folder=None)
 
-_conn, _backend, _placeholder = DB.open_db()
-DB.init_schema(_conn, _backend)
-print(f"[trace] DB ready: backend={_backend}, ToS v{DB.CURRENT_TOS_VERSION}")
+
+# ─────────────────────────────────────────────────────────────────────────
+# Locate the single canonical trace.html.
+# ─────────────────────────────────────────────────────────────────────────
+# There is exactly ONE client file. It normally lives one directory up from
+# this server package (the project root), so the standalone file:// copy and
+# the server-served copy are the same file. Resolution order:
+#   1. $TRACE_HTML_PATH, if set and present (explicit override)
+#   2. ../trace.html      (local dev / repo layout, and the container layout
+#                           where /app/trace.html sits above /app/trace-server)
+#   3. ./trace.html       (last-ditch fallback if someone drops a copy here)
+def _resolve_html_path():
+    override = os.environ.get('TRACE_HTML_PATH')
+    if override and os.path.isfile(override):
+        return os.path.abspath(override)
+    here = os.path.dirname(os.path.abspath(__file__))
+    parent = os.path.abspath(os.path.join(here, '..', 'trace.html'))
+    if os.path.isfile(parent):
+        return parent
+    local = os.path.join(here, 'trace.html')
+    if os.path.isfile(local):
+        return local
+    raise FileNotFoundError(
+        "trace.html not found. Expected it one level up from app.py "
+        "(../trace.html), or set TRACE_HTML_PATH to its absolute path."
+    )
+
+HTML_PATH = _resolve_html_path()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Database
+# ─────────────────────────────────────────────────────────────────────────
+# One Database manager per process (per gunicorn worker, created post-fork).
+# It owns connections; each request borrows one in before_request and returns
+# it in teardown_request. Routes read `g.conn`, `db.backend`, `db.placeholder`.
+#
+# connect() blocks with retries so the app waits for a not-yet-ready Postgres
+# container instead of crash-looping. POSTGRES_CONNECT_RETRIES / _DELAY tune
+# how long it waits (default ~60s).
+db = DB.Database()
+db.connect(
+    retries=int(os.environ.get('POSTGRES_CONNECT_RETRIES', '30')),
+    delay=float(os.environ.get('POSTGRES_CONNECT_DELAY', '2')),
+)
+db.init_schema()
+print(f"[trace] DB ready: backend={db.backend}, ToS v{DB.CURRENT_TOS_VERSION}")
+print(f"[trace] serving client from: {HTML_PATH}")
+
+
+@app.before_request
+def _borrow_conn():
+    g.conn = db.borrow()
+
+
+@app.teardown_request
+def _return_conn(exc):
+    conn = g.pop('conn', None)
+    db.release(conn, failed=exc is not None)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -52,8 +108,8 @@ print(f"[trace] DB ready: backend={_backend}, ToS v{DB.CURRENT_TOS_VERSION}")
 
 @app.route('/')
 def index():
-    here = os.path.dirname(os.path.abspath(__file__))
-    return send_from_directory(here, 'trace.html')
+    # Single source of truth — see _resolve_html_path() above.
+    return send_file(HTML_PATH)
 
 
 @app.route('/favicon.ico')
@@ -72,7 +128,7 @@ def favicon():
 def health():
     return jsonify({
         'ok': True,
-        'backend': _backend,
+        'backend': db.backend,
         'tos_version': DB.CURRENT_TOS_VERSION,
     })
 
@@ -148,7 +204,7 @@ def tos():
 
 @app.route('/api/summary')
 def get_summary():
-    return jsonify(DB.summary(_conn, _backend))
+    return jsonify(DB.summary(g.conn, db.backend))
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -162,7 +218,7 @@ def post_user():
     if not isinstance(data, dict):
         return jsonify({'error': 'JSON body required'}), 400
     try:
-        row = DB.upsert_user(_conn, _backend, _placeholder, data)
+        row = DB.upsert_user(g.conn, db.backend, db.placeholder, data)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception:
@@ -173,7 +229,7 @@ def post_user():
 
 @app.route('/api/users/<user_id>', methods=['GET'])
 def get_user_route(user_id):
-    row = DB.get_user(_conn, _backend, _placeholder, user_id)
+    row = DB.get_user(g.conn, db.backend, db.placeholder, user_id)
     if row is None:
         return jsonify({'error': 'not found'}), 404
     return jsonify(row)
@@ -182,7 +238,7 @@ def get_user_route(user_id):
 @app.route('/api/users/<user_id>', methods=['DELETE'])
 def delete_user_route(user_id):
     """GDPR-style erasure of one user's data."""
-    deleted = DB.delete_user_data(_conn, _backend, _placeholder, user_id)
+    deleted = DB.delete_user_data(g.conn, db.backend, db.placeholder, user_id)
     return jsonify({'deleted_attempts': deleted})
 
 
@@ -199,7 +255,7 @@ def post_attempt():
     # Refuse attempts from users who haven't accepted current ToS.
     # This is the server's enforcement of the play gate — the client
     # also blocks at the UI level, but defence in depth matters.
-    user = DB.get_user(_conn, _backend, _placeholder, data.get('user_id', ''))
+    user = DB.get_user(g.conn, db.backend, db.placeholder, data.get('user_id', ''))
     if user is None:
         return jsonify({
             'error': 'user not registered — POST /api/users first',
@@ -213,7 +269,7 @@ def post_attempt():
         }), 403
 
     try:
-        new_id = DB.insert_attempt(_conn, _backend, _placeholder, data)
+        new_id = DB.insert_attempt(g.conn, db.backend, db.placeholder, data)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception:
@@ -229,7 +285,7 @@ def get_attempts():
         limit = min(int(request.args.get('limit', 50)), 200)
     except (TypeError, ValueError):
         limit = 50
-    rows = DB.list_attempts(_conn, _backend, _placeholder,
+    rows = DB.list_attempts(g.conn, db.backend, db.placeholder,
                             user_id=user_id, limit=limit)
     return jsonify(rows)
 
@@ -252,7 +308,7 @@ def leaderboard_puzzle_route():
         limit = min(int(request.args.get('limit', 50)), 200)
     except (TypeError, ValueError):
         limit = 50
-    rows = DB.leaderboard_puzzle(_conn, _backend, _placeholder,
+    rows = DB.leaderboard_puzzle(g.conn, db.backend, db.placeholder,
                                  seed, size, difficulty, limit)
     return jsonify({
         'seed': seed, 'size': size, 'difficulty': difficulty,
@@ -268,7 +324,7 @@ def leaderboard_daily_route():
     except (TypeError, ValueError):
         limit = 50
     return jsonify(
-        DB.leaderboard_daily(_conn, _backend, _placeholder, date_str, limit)
+        DB.leaderboard_daily(g.conn, db.backend, db.placeholder, date_str, limit)
     )
 
 
@@ -276,7 +332,7 @@ def leaderboard_daily_route():
 def daily_route():
     """Today's daily puzzle metadata (without leaderboard rows)."""
     date_str = request.args.get('date')
-    daily = DB.get_or_create_daily(_conn, _backend, _placeholder, date_str)
+    daily = DB.get_or_create_daily(g.conn, db.backend, db.placeholder, date_str)
     return jsonify(daily)
 
 
@@ -293,13 +349,13 @@ def aggregates_route():
     except (TypeError, ValueError):
         return jsonify({'error': 'bad size'}), 400
     return jsonify(DB.global_aggregates(
-        _conn, _backend, _placeholder, size, difficulty
+        g.conn, db.backend, db.placeholder, size, difficulty
     ))
 
 
 @app.route('/api/insights/personal/<user_id>')
 def insights_personal_route(user_id):
-    return jsonify(DB.personal_insights(_conn, _backend, _placeholder, user_id))
+    return jsonify(DB.personal_insights(g.conn, db.backend, db.placeholder, user_id))
 
 
 @app.route('/api/insights')
@@ -318,7 +374,7 @@ def insights_slice_route():
 
     try:
         return jsonify(DB.insights_slice(
-            _conn, _backend, _placeholder,
+            g.conn, db.backend, db.placeholder,
             slice_by=slice_by, metric=metric,
             size=size, difficulty=difficulty,
             min_samples=min_samples, verified_env_only=verified_env_only,

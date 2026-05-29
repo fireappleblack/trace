@@ -1,0 +1,137 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Trace — application (apply this SECOND, after postgres.yaml)
+# ─────────────────────────────────────────────────────────────────────────
+#   kubectl apply -f trace-server/deploy/postgres.yaml   # database first
+#   kubectl apply -f trace-server/deploy/trace-k8s.yaml  # then the app
+#
+# The app talks to the dedicated Postgres defined in postgres.yaml. It reads
+# DATABASE_URL from the `trace-db` Secret (created by postgres.yaml) and waits
+# for the database to be reachable before serving. Because state now lives in
+# Postgres, the app is stateless and can run multiple replicas.
+#
+# The `trace` namespace is created by postgres.yaml — apply that first.
+# ─────────────────────────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace
+  namespace: trace
+  labels:
+    app: trace
+spec:
+  # Stateless now (all state is in Postgres), so it scales horizontally.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: trace
+  template:
+    metadata:
+      labels:
+        app: trace
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      # Block startup until Postgres accepts connections. The app ALSO retries
+      # on its own (POSTGRES_CONNECT_RETRIES), so this is belt-and-braces — it
+      # just makes `kubectl rollout status` clean instead of showing the app
+      # crash-loop briefly while the DB warms up.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h trace-postgres -p 5432 -U "$POSTGRES_USER"; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trace-db
+                  key: POSTGRES_USER
+      containers:
+        - name: trace
+          image: localhost/trace:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: trace-db
+                  key: DATABASE_URL
+            # How long the app retries the DB at startup before giving up
+            # (30 attempts × 2s ≈ 60s). The initContainer usually means the DB
+            # is already up by the time the app starts.
+            - name: POSTGRES_CONNECT_RETRIES
+              value: "30"
+            - name: POSTGRES_CONNECT_DELAY
+              value: "2"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace
+  namespace: trace
+  labels:
+    app: trace
+spec:
+  type: ClusterIP
+  selector:
+    app: trace
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Traefik ingress (bundled with k3s). Reach the app at http://trace.localhost
+# on the k3s host — browsers resolve *.localhost to 127.0.0.1, so no DNS
+# setup is needed. For a real hostname, change `host` and point DNS at the
+# node. To skip ingress entirely:
+#     kubectl -n trace port-forward svc/trace 8080:80   →  http://localhost:8080
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: trace
+  namespace: trace
+  labels:
+    app: trace
+spec:
+  rules:
+    - host: trace.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: trace
+                port:
+                  number: 80
