@@ -1,0 +1,12 @@
+# Trace server dependencies
+#
+# Flask        — web framework
+# gunicorn     — production WSGI server used in the container image
+# psycopg2-binary — Postgres driver. Required for the default container/k3s
+#                deployment, which uses a dedicated Postgres database. It's
+#                harmless for SQLite-only local use (just unused), so it's
+#                included unconditionally to keep one image for both backends.
+
+Flask>=3.0,<4.0
+gunicorn>=21.2,<23.0
+psycopg2-binary>=2.9,<3.0
