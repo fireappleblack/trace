@@ -872,8 +872,58 @@
      PHASE 1-4 ADDITIONS: onboarding, settings, leaderboard
      ───────────────────────────────────────────────────────── */
 
-  /* Onboarding overlay — non-dismissable until ToS accepted */
-  .modal-bg.gated { background: rgba(28, 24, 19, 0.85); }
+  /* Onboarding overlay — non-dismissable until ToS accepted.
+     A lighter, blurred "frosted glass" scrim (instead of a near-opaque one)
+     so the real puzzle rendered behind it is visible as a preview/hook on
+     load. The overlay still spans the whole viewport at z-index 200, so it
+     intercepts every pointer event — the board can be SEEN but not touched
+     until the compliance opt-in is complete. (A JS guard in handleStart backs
+     this up; see there.) */
+  /* Onboarding gate — three stages over ONE full-viewport, event-blocking
+     overlay (z-index 200), so the puzzle behind is visible but inert until
+     opt-in:
+       • inert (no extra class) — transparent: the player sees ONLY the real
+         puzzle, untouchable. A tap anywhere advances to the banner.
+       • .show-banner — a small welcome banner over a middle strip; the puzzle
+         stays visible around it.
+       • .with-card  — the data-protection card over a dimmed, frosted backdrop
+         for readability.
+     (A JS guard in handleStart backs up the pointer-blocking; see there.) */
+  .modal-bg.gated { background: transparent; cursor: pointer; }
+  .modal-bg.gated.show-banner { cursor: default; }
+  .modal-bg.gated.with-card {
+    background: rgba(28, 24, 19, 0.55);
+    backdrop-filter: blur(2.5px) saturate(1.03);
+    -webkit-backdrop-filter: blur(2.5px) saturate(1.03);
+    cursor: default;
+  }
+
+  /* Small welcome banner — obscures only a middle strip; game shows around it. */
+  .welcome-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: 460px;
+    width: calc(100% - 32px);
+    margin: auto;            /* centres in the flex overlay → middle strip */
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 4px;
+    box-shadow: 6px 6px 0 var(--ink);
+    padding: 14px 16px;
+    animation: slide-up 0.28s cubic-bezier(0.34, 1.4, 0.64, 1);
+    cursor: default;
+  }
+  .welcome-banner[hidden] { display: none; }
+  .welcome-banner-text {
+    flex: 1;
+    font-family: 'Fraunces', serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .welcome-banner .btn { flex-shrink: 0; white-space: nowrap; }
   .modal-tos-body {
     max-height: 240px;
     overflow-y: auto;
@@ -1343,62 +1393,73 @@
      way past is to tick the required "I accept" box and click Continue.
      ═══════════════════════════════════════════════════════════════════════ -->
 <div class="modal-bg gated" id="onboardingModal" hidden>
-  <div class="modal">
-    <div class="modal-eyebrow">Welcome</div>
-    <h2 class="modal-title">Before you play</h2>
+  <!-- Stage 1: small welcome banner, revealed after the first tap on the inert
+       game. Obscures only a middle strip — the puzzle stays visible around it.
+       The phrase is chosen at random client-side from the DB-supplied list. -->
+  <div class="welcome-banner" id="welcomeBanner" hidden>
+    <span class="welcome-banner-text" id="welcomeBannerText">Boring stuff first:</span>
+    <button class="btn primary" id="welcomeOkBtn">OK</button>
+  </div>
 
-    <p style="font-family: 'Fraunces', serif; font-size: 14px; color: var(--ink-soft); margin: 0 0 12px; line-height: 1.5;">
+  <!-- Stage 2: full data-protection options card. Every string is populated
+       from the database via data-uitext / data-uitext-ph hooks; the inline
+       text below is the offline (file:// or fetch-failed) fallback. -->
+  <div class="modal" id="onboardingCard" hidden>
+    <div class="modal-eyebrow" data-uitext="eyebrow">Welcome</div>
+    <h2 class="modal-title" data-uitext="title">Before you play</h2>
+
+    <p data-uitext="intro" style="font-family: 'Fraunces', serif; font-size: 14px; color: var(--ink-soft); margin: 0 0 12px; line-height: 1.5;">
       Trace records your puzzle attempts so you can track how you do over time
       and contribute to anonymous aggregate statistics. We never collect your
       email or name — just an anonymous random ID held in your browser.
     </p>
 
     <div class="modal-tos-body" id="onboardingTosBody">
-      <!-- populated by loading /api/tos OR from embedded fallback -->
+      <!-- populated from /api/ui-text OR embedded fallback -->
     </div>
 
     <div class="modal-faq" id="onboardingFaq">
-      <!-- populated by FAQ items -->
+      <!-- populated from /api/ui-text OR embedded fallback -->
     </div>
 
     <div class="name-input-row">
-      <label for="onbName">Display name (optional)</label>
-      <input type="text" id="onbName" maxlength="40" placeholder="e.g. PathFinder42" />
+      <label for="onbName" data-uitext="name_label">Display name (optional)</label>
+      <input type="text" id="onbName" maxlength="40" data-uitext-ph="name_placeholder" placeholder="e.g. PathFinder42" />
     </div>
 
     <div class="consent-list">
       <div class="consent-row required">
         <input type="checkbox" id="onbAcceptTos" />
         <label for="onbAcceptTos">
-          <div class="consent-h">I accept the Terms above</div>
-          <div class="consent-d">Required to play. Lets us count your basic play stats (times, moves) in anonymous aggregates.</div>
+          <div class="consent-h" data-uitext="accept_h">I accept the Terms above</div>
+          <div class="consent-d" data-uitext="accept_d">Required to play. Lets us count your basic play stats (times, moves) in anonymous aggregates.</div>
         </label>
       </div>
       <div class="consent-row">
         <input type="checkbox" id="onbPublicDefault" />
         <label for="onbPublicDefault">
-          <div class="consent-h">Show me on public leaderboards</div>
-          <div class="consent-d">Your display name and times appear on per-puzzle and daily-challenge leaderboards. You can override per-attempt.</div>
+          <div class="consent-h" data-uitext="public_h">Show me on public leaderboards</div>
+          <div class="consent-d" data-uitext="public_d">Your display name and times appear on per-puzzle and daily-challenge leaderboards. You can override per-attempt.</div>
         </label>
       </div>
       <div class="consent-row">
         <input type="checkbox" id="onbLifestylePublic" />
         <label for="onbLifestylePublic">
-          <div class="consent-h">Allow my lifestyle data to be shown publicly</div>
-          <div class="consent-d">Things like "last meal", "stimulants", "sleep" can appear alongside your display name. Off by default.</div>
+          <div class="consent-h" data-uitext="lifestyle_pub_h">Allow my lifestyle data to be shown publicly</div>
+          <div class="consent-d" data-uitext="lifestyle_pub_d">Things like "last meal", "stimulants", "sleep" can appear alongside your display name. Off by default.</div>
         </label>
       </div>
       <div class="consent-row">
         <input type="checkbox" id="onbLifestyleAgg" />
         <label for="onbLifestyleAgg">
-          <div class="consent-h">Include my lifestyle data in anonymous aggregates</div>
-          <div class="consent-d">Lets queries like "median time when caffeinated" include your data, with at least 20 contributors before any group is shown. Your identity is never attached.</div>
+          <div class="consent-h" data-uitext="lifestyle_agg_h">Include my lifestyle data in anonymous aggregates</div>
+          <div class="consent-d" data-uitext="lifestyle_agg_d">Lets queries like "median time when caffeinated" include your data, with at least 20 contributors before any group is shown. Your identity is never attached.</div>
         </label>
       </div>
     </div>
 
     <div class="modal-actions">
-      <button class="btn primary" id="onbContinueBtn" disabled>Continue</button>
+      <button class="btn primary" id="onbContinueBtn" data-uitext="continue_button" disabled>Continue</button>
     </div>
   </div>
 </div>
@@ -2078,6 +2139,15 @@ function getCellAt(x, y) {
   return [rr, cc];
 }
 function handleStart(x, y) {
+  // Hard interaction lock: while the non-dismissable onboarding gate is
+  // visible, the puzzle behind the frosted overlay is a preview only. Ignore
+  // all board input until the player has completed the compliance opt-in (at
+  // which point the gate is hidden). This backs up the full-viewport overlay,
+  // which already blocks pointer events, and self-releases when the gate hides
+  // — no separate flag to keep in sync.
+  const gate = document.getElementById('onboardingModal');
+  if (gate && !gate.hidden) return;
+
   if (solved) return;
   const cell = getCellAt(x, y);
   if (!cell) return;
@@ -3211,16 +3281,41 @@ const FAQ_FALLBACK = [
     a: "Yes. The Settings panel has 'Erase all my data' which clears your local copy and your server-side record." },
 ];
 
+// Offline / file:// fallback for the welcome-banner phrases. The live list
+// comes from the DB via /api/ui-text; this keeps variety when there's no
+// server. Keep roughly in sync with db.DEFAULT_WELCOME_BANNERS.
+const BANNER_FALLBACK = [
+  "Boring stuff first:",
+  "And now for something completely normal:",
+  "Wait, it gets worse:",
+  "A short moment of tedium before the fun stuff:",
+  "Dull but worthy bit:",
+  "Some choices. Why? Because, OK?",
+  "Sorry for a minor reality intrusion:",
+  "Fun, excitement and really wild things. After this period of enforced boredom:",
+  "Excitement denied! Choose your GDPR options first!",
+  "Ah. Ts & Cs. How lovely:",
+  "But first! Let's spend some heartbeats on data protection.",
+];
+
 const Onboarding = (function() {
-  const el = document.getElementById('onboardingModal');
-  const tosBody = document.getElementById('onboardingTosBody');
-  const faqEl   = document.getElementById('onboardingFaq');
-  const acceptCb = document.getElementById('onbAcceptTos');
-  const publicCb = document.getElementById('onbPublicDefault');
+  const el         = document.getElementById('onboardingModal');
+  const banner     = document.getElementById('welcomeBanner');
+  const bannerText = document.getElementById('welcomeBannerText');
+  const okBtn      = document.getElementById('welcomeOkBtn');
+  const card       = document.getElementById('onboardingCard');
+  const tosBody    = document.getElementById('onboardingTosBody');
+  const faqEl      = document.getElementById('onboardingFaq');
+  const acceptCb   = document.getElementById('onbAcceptTos');
+  const publicCb   = document.getElementById('onbPublicDefault');
   const lifestylePubCb = document.getElementById('onbLifestylePublic');
   const lifestyleAggCb = document.getElementById('onbLifestyleAgg');
-  const nameInput = document.getElementById('onbName');
+  const nameInput  = document.getElementById('onbName');
   const continueBtn = document.getElementById('onbContinueBtn');
+
+  let stage = 'idle';      // 'idle' | 'inert' | 'banner' | 'card'
+  let uiText = null;       // cached /api/ui-text payload
+  let uiTextReady = null;  // promise that resolves once text is loaded (or failed)
 
   function renderTos(text)  { tosBody.textContent = text || TOS_FALLBACK_TEXT; }
   function renderFaq(items) {
@@ -3229,20 +3324,72 @@ const Onboarding = (function() {
       `<details><summary>${q}</summary><p>${a}</p></details>`
     ).join('');
   }
+  // Populate every [data-uitext]/[data-uitext-ph] node in the card from the DB
+  // copy. Missing keys leave the inline fallback text in place.
+  function applyCardText(copy) {
+    if (!copy) return;
+    card.querySelectorAll('[data-uitext]').forEach(node => {
+      const k = node.getAttribute('data-uitext');
+      if (copy[k] != null) node.textContent = copy[k];
+    });
+    card.querySelectorAll('[data-uitext-ph]').forEach(node => {
+      const k = node.getAttribute('data-uitext-ph');
+      if (copy[k] != null) node.placeholder = copy[k];
+    });
+    if (copy.banner_ok_button) okBtn.textContent = copy.banner_ok_button;
+  }
 
-  // Try to load server-side ToS/FAQ; if unavailable use embedded fallback.
-  async function loadTos() {
+  // Fetch all editable text once (banners + card + ToS + FAQ). Falls back to
+  // the embedded copy off-line / on file://. Random banner choice is made
+  // client-side in pickBanner().
+  async function loadUiText() {
     if (location.protocol.startsWith('http')) {
-      try {
-        const r = await fetch('/api/tos').then(r => r.json());
-        renderTos(r.text);
-        renderFaq(r.faq);
-        return r.version;
-      } catch (e) { /* fall through */ }
+      try { uiText = await fetch('/api/ui-text').then(r => r.json()); }
+      catch (e) { uiText = null; }
     }
-    renderTos(TOS_FALLBACK_TEXT);
-    renderFaq(FAQ_FALLBACK);
-    return Profile.CLIENT_TOS_VERSION();
+    applyCardText(uiText && uiText.consent_card);
+    renderTos(uiText && uiText.tos);
+    renderFaq(uiText && uiText.faq);
+    return uiText;
+  }
+
+  function pickBanner() {
+    const list = (uiText && uiText.welcome_banners && uiText.welcome_banners.length)
+      ? uiText.welcome_banners : BANNER_FALLBACK;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  // Stage inert → banner: the first tap on the (transparent) overlay reveals
+  // the welcome banner. Later taps on the overlay do nothing (gate is modal).
+  el.addEventListener('click', () => { if (stage === 'inert') toBanner(); });
+
+  async function toBanner() {
+    stage = 'banner';
+    el.classList.add('show-banner');
+    await uiTextReady;                  // ensure phrases are loaded (or fallback)
+    bannerText.textContent = pickBanner();
+    banner.hidden = false;
+  }
+
+  // Stage banner → card: OK reveals the data-protection options card.
+  okBtn.addEventListener('click', (e) => { e.stopPropagation(); toCard(); });
+
+  function toCard() {
+    stage = 'card';
+    banner.hidden = true;
+    el.classList.remove('show-banner');
+    el.classList.add('with-card');
+    // Prefill anything already known (returning user / stale profile).
+    const p = Profile.get();
+    if (p) {
+      nameInput.value = p.display_name || '';
+      publicCb.checked       = p.public_by_default === 1;
+      lifestylePubCb.checked = p.share_lifestyle_publicly === 1;
+      lifestyleAggCb.checked = p.share_lifestyle_in_aggregate === 1;
+    }
+    acceptCb.checked = false;
+    continueBtn.disabled = true;
+    card.hidden = false;
   }
 
   acceptCb.addEventListener('change', () => {
@@ -3264,26 +3411,27 @@ const Onboarding = (function() {
       share_lifestyle_publicly: lifestylePubCb.checked ? 1 : 0,
       share_lifestyle_in_aggregate: lifestyleAggCb.checked ? 1 : 0,
     });
+    // Consent saved — drop the whole gate; the handleStart lock releases and
+    // gameplay is enabled.
+    stage = 'idle';
+    el.classList.remove('with-card', 'show-banner');
     el.hidden = true;
   });
 
-  async function show() {
-    // If they're returning with a stale profile, prefill what we know
-    const p = Profile.get();
-    if (p) {
-      nameInput.value = p.display_name || '';
-      publicCb.checked       = p.public_by_default === 1;
-      lifestylePubCb.checked = p.share_lifestyle_publicly === 1;
-      lifestyleAggCb.checked = p.share_lifestyle_in_aggregate === 1;
-    }
-    acceptCb.checked = false;
-    continueBtn.disabled = true;
-    continueBtn.textContent = 'Continue';
+  // Entry point. The real puzzle is already rendered; overlay it inert and
+  // wait for the first tap. Prefetch the editable text in the background so
+  // the banner/card are ready by the time the player taps.
+  function begin() {
+    stage = 'inert';
+    el.classList.remove('with-card', 'show-banner');
+    banner.hidden = true;
+    card.hidden = true;
     el.hidden = false;
-    await loadTos();
+    uiTextReady = loadUiText();
   }
 
-  return { show };
+  // `show` kept as an alias so any other caller still works.
+  return { begin, show: begin };
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3713,9 +3861,11 @@ async function boot() {
   if (!SEED) SEED = randomSeedString();
   Profile.init();
   await Profile.pollServerTos();
-  if (Profile.needsOnboarding()) Onboarding.show();
   DB.init();  // fire-and-forget; the puzzle works even before the DB is ready
-  newPuzzle({ fromURL: true });
+  // Render the real puzzle FIRST so it's the visible hook, then (if the player
+  // hasn't accepted the current ToS) overlay it inert and await the first tap.
+  await newPuzzle({ fromURL: true });
+  if (Profile.needsOnboarding()) Onboarding.begin();
 }
 boot();
 </script>

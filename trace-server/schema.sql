@@ -151,6 +151,35 @@ CREATE TABLE IF NOT EXISTS attempts (
 
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- Editable UI text
+-- ─────────────────────────────────────────────────────────────────────────
+-- All player-facing copy that may need changing for legal or design/fun
+-- reasons WITHOUT touching app code: the welcome-banner phrases, the
+-- data-protection options card copy, the ToS body, and the FAQ. One flat
+-- table so the whole lot comes back in a single query
+-- (SELECT ... WHERE active = 1 ORDER BY category, sort_order, id).
+--
+--   category   'welcome_banner' | 'consent_card' | 'tos' | 'faq'
+--   text_key   field name for consent_card/tos (e.g. 'title', 'body');
+--              the question for faq; NULL for welcome_banner phrases
+--   body       the displayed text (for faq rows, the answer)
+--   sort_order display / selection order within a category
+--   active     0 to retire a row without deleting it
+--
+-- Seeded with defaults by db.seed_ui_text() only when empty, so editing rows
+-- directly in the database (the interim admin method) is never overwritten.
+CREATE TABLE IF NOT EXISTS ui_text (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category    TEXT NOT NULL,
+    text_key    TEXT,
+    body        TEXT NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    active      INTEGER NOT NULL DEFAULT 1,
+    updated_at  INTEGER
+);
+
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- Indices
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_attempts_user      ON attempts(user_id);
@@ -158,3 +187,4 @@ CREATE INDEX IF NOT EXISTS idx_attempts_puzzle    ON attempts(seed, size, diffic
 CREATE INDEX IF NOT EXISTS idx_attempts_created   ON attempts(created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_public    ON attempts(is_public, solved);
 CREATE INDEX IF NOT EXISTS idx_attempts_difficulty ON attempts(size, difficulty, solved);
+CREATE INDEX IF NOT EXISTS idx_ui_text_lookup     ON ui_text(active, category, sort_order);

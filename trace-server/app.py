@@ -8,7 +8,7 @@ Routes:
 
   Meta / discovery
     GET  /api/health                    → backend info
-    GET  /api/tos                       → current ToS text + version + FAQ
+    GET  /api/ui-text                   → editable UI text (banners, card, ToS, FAQ) + version
     GET  /api/summary                   → simple aggregates over all rows
 
   Users (phase 1)
@@ -133,72 +133,28 @@ def health():
     })
 
 
-# Placeholder ToS + FAQ text. Bump CURRENT_TOS_VERSION in db.py when you
-# change anything material here; existing users will be re-prompted.
-TOS_TEXT = """Trace is a puzzle game that records your attempts so you can \
-track your performance over time and contribute to anonymous aggregate \
-statistics about how environmental and lifestyle factors affect puzzle solving.
-
-By using Trace, you agree:
-
-  • An anonymous identifier (a random UUID) will be generated in your browser \
-    and stored locally. We never collect your email, name, or any directly-\
-    identifying information.
-
-  • Basic play data — puzzle seed, size, difficulty, your time, move counts — \
-    may be included in anonymous aggregate statistics.
-
-  • Optional lifestyle data (meals, sleep, stimulants, etc.) is held back from \
-    both public display AND aggregate statistics unless you explicitly opt in.
-
-  • You can change your preferences or erase all your data at any time from \
-    the Settings panel."""
-
-FAQ_ITEMS = [
-    {
-        "q": "What data do you collect?",
-        "a": "Times, moves, and backtracks for every solved puzzle. Optionally, "
-             "if you enable it, your location, current weather, sunrise/sunset, "
-             "and self-reported lifestyle context (last meal, sleep, etc.). "
-             "Everything is keyed to an anonymous UUID generated in your browser."
-    },
-    {
-        "q": "Will I be identified?",
-        "a": "No. Your anonymous UUID is only known to your browser. We never "
-             "collect email, real name, or any other directly-identifying info. "
-             "Your display name (if you set one) is purely cosmetic and only "
-             "shown alongside your puzzle times if you opted in."
-    },
-    {
-        "q": "How is my data anonymised in aggregate statistics?",
-        "a": "Aggregate statistics (medians, percentiles, slice insights) report "
-             "numbers computed across many users, not individuals. Group results "
-             "with fewer than 20 contributors are suppressed entirely so single "
-             "attempts can't be back-traced to a person. Your lifestyle data is "
-             "excluded from aggregates entirely unless you specifically opt in."
-    },
-    {
-        "q": "Can I opt out of aggregates without giving up the game?",
-        "a": "Yes. Your lifestyle data is held back by default. You can also "
-             "make every attempt private (excluded from public leaderboards) "
-             "from Settings. Basic anonymous play data flows into aggregate "
-             "counts under the Terms — that's what the per-puzzle leaderboards "
-             "are computed from."
-    },
-    {
-        "q": "Can I delete my data?",
-        "a": "Yes. The Settings panel has 'Erase all my data' which clears "
-             "both your local copy AND your server-side record."
-    },
-]
+# UI text (welcome banners, consent-card copy, ToS body, FAQ) now lives in the
+# database (ui_text table), editable without touching app code. Defaults are
+# seeded by db.seed_ui_text(). Bump CURRENT_TOS_VERSION in db.py when a ToS
+# change is material enough to re-prompt existing users.
 
 
-@app.route('/api/tos')
-def tos():
+@app.route('/api/ui-text')
+def ui_text():
+    # One query for everything; group it into the shape the client wants. The
+    # random welcome-banner choice is made client-side from `welcome_banners`.
+    rows = DB.get_ui_text(g.conn, db.backend)
+    banners = [r['body'] for r in rows if r['category'] == 'welcome_banner']
+    card = {r['text_key']: r['body'] for r in rows if r['category'] == 'consent_card'}
+    tos = next((r['body'] for r in rows
+                if r['category'] == 'tos' and r['text_key'] == 'body'), '')
+    faq = [{'q': r['text_key'], 'a': r['body']} for r in rows if r['category'] == 'faq']
     return jsonify({
         'version': DB.CURRENT_TOS_VERSION,
-        'text': TOS_TEXT,
-        'faq': FAQ_ITEMS,
+        'welcome_banners': banners,
+        'consent_card': card,
+        'tos': tos,
+        'faq': faq,
     })
 
 

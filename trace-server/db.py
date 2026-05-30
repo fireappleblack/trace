@@ -440,10 +440,151 @@ def init_schema(conn, backend, schema_path=None):
         finally:
             cur.close()
 
+    # Seed editable UI text (welcome banners, consent card copy, ToS, FAQ) on
+    # a fresh database. No-op once any rows exist, so direct admin edits stand.
+    seed_ui_text(conn, backend)
+
 
 # ═════════════════════════════════════════════════════════════════════════
-# Users
+# Editable UI text  (welcome banners, consent card copy, ToS body, FAQ)
 # ═════════════════════════════════════════════════════════════════════════
+# These defaults are the seed for a fresh database only. Once the table has
+# rows, an admin edits them directly in the database (and, later, via an admin
+# UI) — seeding never overwrites them. The client also carries its own copy of
+# this text as an offline/file:// fallback.
+
+DEFAULT_WELCOME_BANNERS = [
+    "Boring stuff first:",
+    "And now for something completely normal:",
+    "Wait, it gets worse:",
+    "A short moment of tedium before the fun stuff:",
+    "Dull but worthy bit:",
+    "Some choices. Why? Because, OK?",
+    "Sorry for a minor reality intrusion:",
+    "Fun, excitement and really wild things. After this period of enforced boredom:",
+    "Excitement denied! Choose your GDPR options first!",
+    "Ah. Ts & Cs. How lovely:",
+    "But first! Let's spend some heartbeats on data protection.",
+]
+
+# Order here is the on-screen order; keys match data-uitext hooks in the client.
+DEFAULT_CONSENT_CARD = [
+    ('eyebrow',          'Welcome'),
+    ('title',            'Before you play'),
+    ('intro',            'Trace records your puzzle attempts so you can track how you do '
+                         'over time and contribute to anonymous aggregate statistics. We '
+                         'never collect your email or name — just an anonymous random ID '
+                         'held in your browser.'),
+    ('name_label',       'Display name (optional)'),
+    ('name_placeholder', 'e.g. PathFinder42'),
+    ('accept_h',         'I accept the Terms above'),
+    ('accept_d',         'Required to play. Lets us count your basic play stats (times, '
+                         'moves) in anonymous aggregates.'),
+    ('public_h',         'Show me on public leaderboards'),
+    ('public_d',         'Your display name and times appear on per-puzzle and '
+                         'daily-challenge leaderboards. You can override per-attempt.'),
+    ('lifestyle_pub_h',  'Allow my lifestyle data to be shown publicly'),
+    ('lifestyle_pub_d',  'Things like "last meal", "stimulants", "sleep" can appear '
+                         'alongside your display name. Off by default.'),
+    ('lifestyle_agg_h',  'Include my lifestyle data in anonymous aggregates'),
+    ('lifestyle_agg_d',  'Lets queries like "median time when caffeinated" include your '
+                         'data, with at least 20 contributors before any group is shown. '
+                         'Your identity is never attached.'),
+    ('continue_button',  'Continue'),
+    ('banner_ok_button', 'OK'),
+]
+
+DEFAULT_TOS_BODY = (
+    "Trace is a puzzle game that records your attempts so you can track your "
+    "performance over time and contribute to anonymous aggregate statistics "
+    "about how environmental and lifestyle factors affect puzzle solving.\n\n"
+    "By using Trace, you agree:\n\n"
+    "  • An anonymous identifier (a random UUID) will be generated in your "
+    "browser and stored locally. We never collect your email, name, or any "
+    "directly-identifying information.\n\n"
+    "  • Basic play data — puzzle seed, size, difficulty, your time, move "
+    "counts — may be included in anonymous aggregate statistics.\n\n"
+    "  • Optional lifestyle data (meals, sleep, stimulants, etc.) is held back "
+    "from both public display AND aggregate statistics unless you explicitly "
+    "opt in.\n\n"
+    "  • You can change your preferences or erase all your data at any time "
+    "from the Settings panel."
+)
+
+DEFAULT_FAQ = [
+    ("What data do you collect?",
+     "Times, moves, and backtracks for every solved puzzle. Optionally, if you "
+     "enable it, your location, current weather, sunrise/sunset, and "
+     "self-reported lifestyle context (last meal, sleep, etc.). Everything is "
+     "keyed to an anonymous UUID generated in your browser."),
+    ("Will I be identified?",
+     "No. Your anonymous UUID is only known to your browser. We never collect "
+     "email, real name, or any other directly-identifying info. Your display "
+     "name (if you set one) is purely cosmetic and only shown alongside your "
+     "puzzle times if you opted in."),
+    ("How is my data anonymised in aggregate statistics?",
+     "Aggregate statistics (medians, percentiles, slice insights) report "
+     "numbers computed across many users, not individuals. Group results with "
+     "fewer than 20 contributors are suppressed entirely so single attempts "
+     "can't be back-traced to a person. Your lifestyle data is excluded from "
+     "aggregates entirely unless you specifically opt in."),
+    ("Can I opt out of aggregates without giving up the game?",
+     "Yes. Your lifestyle data is held back by default. You can also make "
+     "every attempt private (excluded from public leaderboards) from Settings. "
+     "Basic anonymous play data flows into aggregate counts under the Terms — "
+     "that's what the per-puzzle leaderboards are computed from."),
+    ("Can I delete my data?",
+     "Yes. The Settings panel has 'Erase all my data' which clears both your "
+     "local copy AND your server-side record."),
+]
+
+
+def seed_ui_text(conn, backend):
+    """Insert default UI text if the table is empty. Idempotent."""
+    ph = '%s' if backend == 'postgres' else '?'
+    cur = cursor(conn, backend)
+    cur.execute("SELECT COUNT(*) AS n FROM ui_text")
+    row = cur.fetchone()
+    count = (row['n'] if isinstance(row, dict) or hasattr(row, 'keys') else row[0])
+    cur.close()
+    if count and int(count) > 0:
+        return  # already populated (possibly admin-edited) — leave it alone
+
+    now = int(time.time() * 1000)
+    rows = []
+    for i, phrase in enumerate(DEFAULT_WELCOME_BANNERS):
+        rows.append(('welcome_banner', None, phrase, i))
+    for i, (key, val) in enumerate(DEFAULT_CONSENT_CARD):
+        rows.append(('consent_card', key, val, i))
+    rows.append(('tos', 'body', DEFAULT_TOS_BODY, 0))
+    for i, (q, a) in enumerate(DEFAULT_FAQ):
+        rows.append(('faq', q, a, i))
+
+    cur = cursor(conn, backend)
+    for category, text_key, body, sort_order in rows:
+        cur.execute(
+            f"INSERT INTO ui_text (category, text_key, body, sort_order, active, updated_at) "
+            f"VALUES ({ph}, {ph}, {ph}, {ph}, 1, {ph})",
+            (category, text_key, body, sort_order, now)
+        )
+    conn.commit()
+    cur.close()
+
+
+def get_ui_text(conn, backend):
+    """
+    Return every active UI-text row in ONE query, ordered for display. The
+    caller (the /api/ui-text route) groups these into banners / card / tos /
+    faq; the random welcome-banner choice is made client-side.
+    """
+    cur = cursor(conn, backend)
+    cur.execute(
+        "SELECT category, text_key, body, sort_order FROM ui_text "
+        "WHERE active = 1 ORDER BY category, sort_order, id"
+    )
+    out = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return out
 
 def get_user(conn, backend, placeholder, user_id):
     """Returns the user row as a dict, or None if not found."""
