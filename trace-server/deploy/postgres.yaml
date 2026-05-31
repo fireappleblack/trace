@@ -1,41 +1,30 @@
 # ─────────────────────────────────────────────────────────────────────────
-# Trace — dedicated PostgreSQL database (apply this FIRST)
+# Trace — dedicated PostgreSQL database
 # ─────────────────────────────────────────────────────────────────────────
-#   kubectl apply -f trace-server/deploy/postgres.yaml
-#
-# This is a standalone, single-instance Postgres for Trace only — not shared
-# with any other app. It owns the `trace` namespace, its credentials Secret,
-# a headless Service for stable DNS, and a StatefulSet with its own
+# Standalone, single-instance Postgres for Trace only. Owns the `trace`
+# namespace, a headless Service for stable DNS, and a StatefulSet with its own
 # PersistentVolumeClaim.
 #
-# The app (trace-k8s.yaml) reads DATABASE_URL from the Secret defined here and
-# connects to the Service name `trace-postgres`.
+# NOTE: the credentials Secret (`trace-db`) is NOT in this file — it must
+# never be committed to git. It's created out-of-band from a gitignored
+# secrets file. Use the helper, which creates the namespace, the Secret, and
+# then applies this manifest in the right order:
 #
-# ⚠️  CHANGE THE PASSWORD before applying anywhere you care about. With the
-#     component-based config, the password is needed in exactly ONE place
-#     (POSTGRES_PASSWORD below) and may contain ANY characters — the app
-#     percent-encodes it when it builds the connection URL, so symbols like
-#     @ : / [ ] # & = no longer break anything. Prefer creating the Secret
-#     out-of-band rather than committing a real one.
+#     cp trace-server/deploy/.secrets.env.example trace-server/deploy/.secrets.env
+#     # edit .secrets.env, set POSTGRES_PASSWORD to a real value
+#     ./trace-server/deploy/apply-db.sh
+#
+# The StatefulSet below reads POSTGRES_USER/PASSWORD/DB from that Secret via
+# envFrom; the app (trace-k8s.yaml) reads the same Secret. If you apply this
+# file directly without the Secret existing, the pod will wait (CreateContainer
+# error) until the Secret is present — apply-db.sh avoids that by creating it
+# first.
 # ─────────────────────────────────────────────────────────────────────────
 
 apiVersion: v1
 kind: Namespace
 metadata:
   name: trace
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: trace-db
-  namespace: trace
-type: Opaque
-stringData:
-  POSTGRES_USER: trace
-  POSTGRES_DB: trace
-  # Any characters are fine here — it's used literally by Postgres and
-  # percent-encoded by the app. No URL escaping needed.
-  POSTGRES_PASSWORD: "I^shou134Db&inB3sn882"
 ---
 # Headless Service (clusterIP: None) — gives the StatefulSet pod stable DNS at
 # trace-postgres.trace.svc.cluster.local. With one pod this name resolves to

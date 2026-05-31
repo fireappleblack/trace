@@ -117,11 +117,27 @@ spec:
       port: 80
       targetPort: http
 ---
-# Traefik ingress (bundled with k3s). Reach the app at http://trace.localhost
-# on the k3s host — browsers resolve *.localhost to 127.0.0.1, so no DNS
-# setup is needed. For a real hostname, change `host` and point DNS at the
-# node. To skip ingress entirely:
-#     kubectl -n trace port-forward svc/trace 8080:80   →  http://localhost:8080
+# Traefik ingress (bundled with k3s), now with Let's Encrypt TLS via
+# cert-manager. cert-manager watches this Ingress, sees the cluster-issuer
+# annotation + the tls block, obtains a certificate covering every host in
+# the tls block over HTTP-01, and stores it in the `trace-tls` Secret, which
+# Traefik then serves.
+#
+# Multi-domain: all three hostnames below resolve to the same node IP and are
+# served by the same app. They share ONE certificate (the three names become
+# Subject Alternative Names on a single cert). Trade-off of sharing: the names
+# are publicly linked in Certificate Transparency logs, and a DNS break on any
+# one of them can stall renewal of the shared cert. To decouple them instead,
+# give each host its own `tls:` entry with a distinct `secretName`.
+#
+# Start with the STAGING issuer to prove the flow without hitting Let's
+# Encrypt's production rate limits, then switch the annotation to
+# `letsencrypt-prod` and re-issue (see README runbook).
+#
+# Requires, for EACH host: a DNS A record → the node's public IP, resolving
+# BEFORE this is applied (every name is validated independently — one missing
+# record stalls the whole cert), and ports 80+443 open to the internet on
+# that node.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

@@ -106,22 +106,37 @@ sudo k3s ctr images ls | grep trace        # verify
 (The Postgres image `postgres:16-alpine` is pulled by k3s from Docker Hub
 normally — no side-loading needed for it, assuming the node has internet.)
 
-**2. Set a real database password.** Edit `deploy/postgres.yaml` and change
-`POSTGRES_PASSWORD` in the `trace-db` Secret — that's the only place it
-appears. It may contain any characters; the app percent-encodes it when it
-builds the connection URL, so symbols like `@ : / [ ] #` are fine. For
-anything real, prefer creating the Secret out-of-band rather than committing
-it.
-
-**3. Apply — database first, then the app:**
+**2. Set the database password (kept out of git).** The credentials live in a
+gitignored file, not in any committed manifest:
 
 ```bash
-kubectl apply -f trace-server/deploy/postgres.yaml
-kubectl -n trace rollout status statefulset/trace-postgres
+cp trace-server/deploy/.secrets.env.example trace-server/deploy/.secrets.env
+# edit .secrets.env — set POSTGRES_PASSWORD to a real value.
+# Any characters are fine (no quoting, no escaping); just no trailing space.
+```
+
+`.secrets.env` is gitignored; only `.secrets.env.example` is tracked. The
+password may contain any characters — the app percent-encodes it for its
+connection URL, and `apply-db.sh` feeds it to Kubernetes via
+`--from-env-file`, which reads it verbatim (no shell), so symbols like
+`^ & @ : / [ ] #` are safe.
+
+**3. Apply — database (with its Secret) first, then the app:**
+
+```bash
+# Creates the namespace, the trace-db Secret from .secrets.env, then Postgres.
+./trace-server/deploy/apply-db.sh
 
 kubectl apply -f trace-server/deploy/trace-k8s.yaml
 kubectl -n trace rollout status deploy/trace
 ```
+
+To **rotate** the password later: edit `.secrets.env`, re-run `apply-db.sh`
+(it upserts the Secret), then recreate Postgres so `initdb` adopts the new
+password — `kubectl -n trace delete statefulset trace-postgres && kubectl -n
+trace delete pvc -l app=trace-postgres` (wipes data) — and restart the app
+(`kubectl -n trace rollout restart deploy/trace`). On an empty cluster that's
+painless; with real data, dump first (see Persistence below).
 
 The app's init container blocks on `pg_isready` until Postgres answers, and
 the app itself retries the connection for ~60s — so even if you apply both at
