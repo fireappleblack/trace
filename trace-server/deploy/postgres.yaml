@@ -35,7 +35,7 @@ stringData:
   POSTGRES_DB: trace
   # Any characters are fine here — it's used literally by Postgres and
   # percent-encoded by the app. No URL escaping needed.
-  POSTGRES_PASSWORD: "CHANGEMECHANGEME"
+  POSTGRES_PASSWORD: "I^shou134Db&inB3sn882"
 ---
 # Headless Service (clusterIP: None) — gives the StatefulSet pod stable DNS at
 # trace-postgres.trace.svc.cluster.local. With one pod this name resolves to
