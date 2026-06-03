@@ -49,7 +49,7 @@ CURRENT_TOS_VERSION = 1
 ALLOWED_ATTEMPT_COLUMNS = {
     'user_id', 'seed', 'size', 'difficulty',
     'started_at', 'completed_at', 'duration_ms',
-    'moves', 'backtracks', 'undos', 'clears', 'solved',
+    'moves', 'backtracks', 'undos', 'clears', 'solved', 'cheated',
     'is_public', 'env_verified', 'tos_version',
     'latitude', 'longitude', 'location_label',
     'local_time_iso', 'sunrise_iso', 'sunset_iso',
@@ -865,6 +865,7 @@ def leaderboard_puzzle(conn, backend, placeholder, seed, size, difficulty, limit
           AND a.difficulty = {placeholder}
           AND a.solved = 1
           AND a.is_public = 1
+          AND a.cheated = 0
         GROUP BY a.user_id, u.display_name
         ORDER BY best_ms ASC
         LIMIT {placeholder}
@@ -904,7 +905,7 @@ def global_aggregates(conn, backend, placeholder, size=None, difficulty=None):
     Includes only public solved attempts so the numbers match what users
     can verify on the per-puzzle leaderboards.
     """
-    where_parts = ["solved = 1", "is_public = 1"]
+    where_parts = ["solved = 1", "is_public = 1", "cheated = 0"]
     params = []
     if size is not None:
         where_parts.append(f"size = {placeholder}")
@@ -1045,6 +1046,7 @@ def insights_slice(conn, backend, placeholder,
     where_parts = [
         "a.solved = 1",
         "a.is_public = 1",
+        "a.cheated = 0",
     ]
     params = []
 

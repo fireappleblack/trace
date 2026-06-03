@@ -872,40 +872,46 @@
      PHASE 1-4 ADDITIONS: onboarding, settings, leaderboard
      ───────────────────────────────────────────────────────── */
 
-  /* Onboarding overlay — non-dismissable until ToS accepted.
-     A lighter, blurred "frosted glass" scrim (instead of a near-opaque one)
-     so the real puzzle rendered behind it is visible as a preview/hook on
-     load. The overlay still spans the whole viewport at z-index 200, so it
-     intercepts every pointer event — the board can be SEEN but not touched
-     until the compliance opt-in is complete. (A JS guard in handleStart backs
-     this up; see there.) */
-  /* Onboarding gate — three stages over ONE full-viewport, event-blocking
-     overlay (z-index 200), so the puzzle behind is visible but inert until
-     opt-in:
-       • inert (no extra class) — transparent: the player sees ONLY the real
-         puzzle, untouchable. A tap anywhere advances to the banner.
-       • .show-banner — a small welcome banner over a middle strip; the puzzle
-         stays visible around it.
-       • .with-card  — the data-protection card over a dimmed, frosted backdrop
-         for readability.
-     (A JS guard in handleStart backs up the pointer-blocking; see there.) */
-  .modal-bg.gated { background: transparent; cursor: pointer; }
-  .modal-bg.gated.show-banner { cursor: default; }
-  .modal-bg.gated.with-card {
-    background: rgba(28, 24, 19, 0.55);
-    backdrop-filter: blur(2.5px) saturate(1.03);
-    -webkit-backdrop-filter: blur(2.5px) saturate(1.03);
-    cursor: default;
+  /* Onboarding gate — a full-viewport, event-blocking overlay (z-index 200).
+     It is OPAQUE: it hides the real puzzle (rendered behind it) so the player
+     can't study it before the timer can start. Instead it shows a finished
+     SAMPLE puzzle — or a snapshot of their last completed one — as the
+     backdrop, with the welcome banner and then the consent card layered on top.
+     A JS guard in handleStart also blocks play until consent is complete. */
+  .modal-bg.gated {
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .modal-bg.gated.show-banner,
+  .modal-bg.gated.with-card { cursor: default; }
+
+  /* Backdrop holding the sample/last-puzzle SVG preview, centred and faded so
+     it reads as a preview rather than the live board. Sits beneath the banner
+     and card (which are opaque and fully readable on their own). */
+  .onboarding-backdrop {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .onboarding-backdrop svg {
+    width: min(82vw, 78vh, 440px);
+    height: auto;
   }
 
-  /* Small welcome banner — obscures only a middle strip; game shows around it. */
+  /* Small welcome banner — sits over the sample puzzle. */
   .welcome-banner {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 14px;
     max-width: 460px;
     width: calc(100% - 32px);
-    margin: auto;            /* centres in the flex overlay → middle strip */
+    margin: auto;
     background: var(--paper);
     border: 1.5px solid var(--ink);
     border-radius: 4px;
@@ -924,6 +930,53 @@
     line-height: 1.3;
   }
   .welcome-banner .btn { flex-shrink: 0; white-space: nowrap; }
+
+  /* Solution-style (wiggliness) slider — full-width row under the controls. */
+  .wiggle-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 0 2px;
+  }
+  .wiggle-bar-label {
+    flex-shrink: 0;
+    font-family: 'Albert Sans', sans-serif;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--ink-soft);
+  }
+  .wiggle-bar .wiggle-range { flex: 1; width: auto; }
+  .wiggle-bar-val {
+    flex-shrink: 0;
+    min-width: 116px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .wiggle-range {
+    width: 100%;
+    -webkit-appearance: none; appearance: none;
+    height: 4px; border-radius: 2px;
+    background: var(--rule);
+    outline: none; cursor: pointer;
+  }
+  .wiggle-range::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--paper);
+    box-shadow: 0 0 0 1.5px var(--ink);
+    cursor: pointer;
+  }
+  .wiggle-range::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--paper);
+    box-shadow: 0 0 0 1.5px var(--ink);
+    cursor: pointer;
+  }
   .modal-tos-body {
     max-height: 240px;
     overflow-y: auto;
@@ -1273,6 +1326,13 @@
     <button class="btn primary" id="newBtn">New Puzzle</button>
   </div>
 
+  <div class="wiggle-bar">
+    <span class="wiggle-bar-label">Path</span>
+    <input type="range" id="mainWiggle" class="wiggle-range" min="0" max="4" step="1" value="2"
+           aria-label="Solution style, from almost straight to really wiggly" />
+    <span class="wiggle-bar-val" id="mainWiggleVal">Balanced</span>
+  </div>
+
   <div class="settings">
     <div class="setting">
       <label for="sizeSel">Grid</label>
@@ -1329,6 +1389,10 @@
       <div class="metric-cell"><span class="metric-l">Moves</span><span class="metric-v" id="logMoves">—</span></div>
       <div class="metric-cell"><span class="metric-l">Backtracks</span><span class="metric-v" id="logBacktracks">—</span></div>
       <div class="metric-cell"><span class="metric-l">Undos</span><span class="metric-v" id="logUndos">—</span></div>
+    </div>
+
+    <div id="logCheatFlag" hidden style="margin: 4px 0 12px; padding: 9px 12px; border: 1.5px solid var(--accent); border-radius: 3px; background: rgba(209,74,43,0.07); font-family: 'Albert Sans', sans-serif; font-size: 13px; color: var(--accent);">
+      ⚠ Solved with cheat mode on. This attempt is flagged and won't appear on public leaderboards or in aggregates.
     </div>
 
     <!-- Environmental context: starts collapsed with a "Detect" button.
@@ -1393,9 +1457,14 @@
      way past is to tick the required "I accept" box and click Continue.
      ═══════════════════════════════════════════════════════════════════════ -->
 <div class="modal-bg gated" id="onboardingModal" hidden>
-  <!-- Stage 1: small welcome banner, revealed after the first tap on the inert
-       game. Obscures only a middle strip — the puzzle stays visible around it.
-       The phrase is chosen at random client-side from the DB-supplied list. -->
+  <!-- Backdrop: a finished SAMPLE puzzle (or a snapshot of the player's last
+       completed puzzle) shown while onboarding. The REAL puzzle is generated
+       and held but kept hidden behind this opaque layer, so nobody can study
+       it before the timer can start. Populated by Onboarding.begin(). -->
+  <div class="onboarding-backdrop" id="onboardingBackdrop" aria-hidden="true"></div>
+
+  <!-- Stage 1: small welcome banner, revealed after the first tap. It sits over
+       the sample puzzle; the phrase is chosen at random client-side. -->
   <div class="welcome-banner" id="welcomeBanner" hidden>
     <span class="welcome-banner-text" id="welcomeBannerText">Boring stuff first:</span>
     <button class="btn primary" id="welcomeOkBtn">OK</button>
@@ -1506,6 +1575,16 @@
       </div>
     </div>
 
+    <div class="consent-list" style="margin-top: 14px;">
+      <div class="consent-row">
+        <input type="checkbox" id="setCheatMode" />
+        <label for="setCheatMode">
+          <div class="consent-h">Reveal solution (cheat mode)</div>
+          <div class="consent-d">Outlines the intended path on the board — handy for testing. Any puzzle solved with this on is flagged as a cheat and kept off public leaderboards and aggregates. Resets when you reload.</div>
+        </label>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn danger" id="settingsEraseBtn">Erase all my data</button>
       <div style="flex: 1"></div>
@@ -1548,6 +1627,7 @@
 let SIZE = 6;
 let DIFFICULTY = 'tricky';
 let SEED = '';
+let cheatMode = false;   // when on, the solution is outlined; solves are flagged
 
 const DIFFS = ['gentle', 'tricky', 'knotty', 'fiendish'];
 
@@ -1694,9 +1774,29 @@ function generateHamiltonian() {
     const [r, c] = p[p.length - 1];
     const cands = [];
     for (const n of neighbors(r, c)) if (!visited.has(k(n[0], n[1]))) cands.push(n);
-    shuffle(cands);
-    cands.sort((a, b) => onwardCount(a[0], a[1]) - onwardCount(b[0], b[1]));
-    for (const n of cands) {
+    let ordered;
+    if (genWiggle) {
+      // Warnsdorff (fewest onward moves first) still dominates, to avoid dead
+      // ends; the wiggle bias only reorders *ties* — nudging turning moves
+      // earlier when wiggly, straight moves earlier when straight. The bias
+      // term is < the integer gap between onward-counts, so it never overrides
+      // Warnsdorff. A little rng jitter preserves variety across sub-seeds.
+      let ldr = 0, ldc = 0;
+      if (p.length >= 2) { const pr = p[p.length - 2]; ldr = r - pr[0]; ldc = c - pr[1]; }
+      const bias = genWiggle.bias;
+      const scored = cands.map(n => {
+        const isTurn = (p.length >= 2) ? !(n[0] - r === ldr && n[1] - c === ldc) : true;
+        const score = onwardCount(n[0], n[1]) + (-bias * (isTurn ? 1 : -1)) * 0.3 + rng() * 0.1;
+        return { n, score };
+      });
+      scored.sort((a, b) => a.score - b.score);
+      ordered = scored.map(s => s.n);
+    } else {
+      shuffle(cands);
+      cands.sort((a, b) => onwardCount(a[0], a[1]) - onwardCount(b[0], b[1]));
+      ordered = cands;
+    }
+    for (const n of ordered) {
       const key = k(n[0], n[1]);
       visited.add(key); p.push(n);
       if (dfs()) return true;
@@ -1705,6 +1805,59 @@ function generateHamiltonian() {
     return false;
   }
   return dfs() ? p : null;
+}
+
+// ─── Wiggliness ─────────────────────────────────────
+// "Wiggliness" = turn ratio of the solution path: the fraction of interior
+// cells where the path changes direction rather than going straight through.
+// Empirically, snake-like paths sit ~0.28 and very twisty paths reach ~0.85;
+// the natural generator averages ~0.5. The slider biases generation toward a
+// target turn ratio (and, at the wiggly end, away from long straight runs —
+// the thing that makes a path feel un-wiggly).
+//
+// Wiggliness is a first-class puzzle parameter, exactly like SIZE and
+// DIFFICULTY: it lives in WIGGLE (level 0..4), travels in the URL as `w`, and
+// is reflected by the on-board slider. A puzzle is therefore reproducible from
+// (seed, size, difficulty, w). Level 2 = the natural generator (no bias), so
+// w=2 / a missing `w` param (the daily, any old link) generates exactly as
+// before. The last-used level is also remembered in localStorage as the
+// default for fresh sessions.
+const WIGGLE_DEFAULT = 2;                          // midpoint = natural, no bias
+const WIGGLE_TARGET = { 0: 0.30, 1: 0.42, 3: 0.62, 4: 0.75 };
+const WIGGLE_BIAS   = { 0: -1.0, 1: -0.6, 3: 0.6, 4: 1.0 };
+const WIGGLE_LABELS = ['Almost straight', 'Fairly straight', 'Balanced', 'Fairly wiggly', 'Really wiggly'];
+let genWiggle = null;                              // {target,bias} during gen, or null
+
+function getWigglePref() {
+  const v = parseInt(localStorage.getItem('trace.wiggle'), 10);
+  return Number.isInteger(v) && v >= 0 && v <= 4 ? v : WIGGLE_DEFAULT;
+}
+function setWigglePref(v) { try { localStorage.setItem('trace.wiggle', String(v)); } catch (e) {} }
+let WIGGLE = getWigglePref();                      // current puzzle's level (like SIZE)
+
+function wiggleParamsFor(level) {
+  if (!(level in WIGGLE_TARGET)) return null;       // default level → no bias
+  return { target: WIGGLE_TARGET[level], bias: WIGGLE_BIAS[level] };
+}
+// Keep the on-board slider + label in step with the current WIGGLE level.
+function syncWiggleUI() {
+  const s = document.getElementById('mainWiggle');
+  if (s) s.value = String(WIGGLE);
+  const v = document.getElementById('mainWiggleVal');
+  if (v) v.textContent = WIGGLE_LABELS[WIGGLE] || 'Balanced';
+}
+
+// Turn ratio in [0,1], plus the longest straight run (in edges).
+function pathWiggliness(path) {
+  if (!path || path.length < 3) return { turnRatio: 0, longestRun: path ? path.length - 1 : 0 };
+  let turns = 0, run = 1, longest = 1;
+  for (let i = 1; i < path.length - 1; i++) {
+    const a = path[i - 1], b = path[i], c = path[i + 1];
+    const straight = (b[0] - a[0] === c[0] - b[0]) && (b[1] - a[1] === c[1] - b[1]);
+    if (straight) { run++; } else { turns++; if (run > longest) longest = run; run = 1; }
+  }
+  if (run > longest) longest = run;
+  return { turnRatio: turns / (path.length - 2), longestRun: longest };
 }
 
 function pickWaypoints(sol, count) {
@@ -1889,12 +2042,18 @@ function generateForDifficulty() {
   const target = DIFFICULTY;
   const baseWp = targetWaypoints(target, area);
 
+  // Wiggliness target from the current puzzle's WIGGLE level. null = default/
+  // natural, in which case the original fast path runs and puzzles are
+  // bit-identical to before (this keeps the daily and w=2 links stable).
+  genWiggle = wiggleParamsFor(WIGGLE);
+  const wiggleActive = !!genWiggle;
+
   // Larger grids cost more per attempt; bound total time spent.
   const ATTEMPTS    = SIZE <= 6 ? 18 : SIZE === 7 ? 10 : 6;
   const TIME_BUDGET = SIZE <= 6 ? 1800 : SIZE === 7 ? 2800 : 4000;
 
-  let best = null;
-  let bestScore = Infinity;
+  let best = null, bestScore = Infinity;     // closest difficulty (fallback)
+  let wBest = null, wBestScore = Infinity;   // closest wiggliness among difficulty matches
   const t0 = Date.now();
 
   for (let i = 0; i < ATTEMPTS; i++) {
@@ -1905,12 +2064,26 @@ function generateForDifficulty() {
     const cand = generateCandidate(i, wp);
     if (!cand) continue;
     const observed = cand.aborted ? 'fiendish' : classify(cand.nodes, area);
-    if (observed === target) return cand;
     const score = Math.abs(DIFFS.indexOf(observed) - DIFFS.indexOf(target));
     if (score < bestScore) { bestScore = score; best = cand; }
-    // Accept a one-band miss after a few tries.
-    if (score === 1 && i >= 4) return cand;
+
+    if (!wiggleActive) {
+      // Original fast path: first exact difficulty match wins.
+      if (observed === target) return cand;
+      if (score === 1 && i >= 4) return cand;     // accept a one-band miss later
+    } else if (observed === target) {
+      // Difficulty matches — score by closeness to the target turn ratio, and
+      // at the wiggly end also penalise a long straight run (the single long
+      // shot that makes a "wiggly" solution feel straight).
+      const w = pathWiggliness(cand.sol);
+      const ws = Math.abs(w.turnRatio - genWiggle.target)
+               + Math.max(0, genWiggle.bias) * 0.15 * (w.longestRun / SIZE);
+      if (ws < wBestScore) { wBestScore = ws; wBest = cand; }
+    }
   }
+  // Wiggle mode: difficulty match closest to the target wiggliness, else fall
+  // back to the closest-difficulty candidate (difficulty always wins).
+  if (wiggleActive && wBest) return wBest;
   return best;
 }
 
@@ -1974,14 +2147,17 @@ function parseURL() {
   const seed = p.get('seed');
   const size = parseInt(p.get('size'), 10);
   const diff = p.get('difficulty');
+  const w    = parseInt(p.get('w'), 10);
   if (size && [5,6,7,8].includes(size)) SIZE = size;
   if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
+  if (Number.isInteger(w) && w >= 0 && w <= 4) WIGGLE = w;   // this puzzle's style
   if (seed) SEED = seed;
   // Sync UI selects.
   const sSel = document.getElementById('sizeSel');
   const dSel = document.getElementById('diffSel');
   if (sSel) sSel.value = String(SIZE);
   if (dSel) dSel.value = DIFFICULTY;
+  syncWiggleUI();
 }
 
 function updateURL() {
@@ -1989,12 +2165,72 @@ function updateURL() {
   p.set('seed', SEED);
   p.set('size', SIZE);
   p.set('difficulty', DIFFICULTY);
+  p.set('w', WIGGLE);
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
 
 function updateSeedDisplay() {
   if (seedValEl) seedValEl.textContent = SEED;
   if (diffBadgeEl) diffBadgeEl.textContent = DIFFICULTY;
+}
+
+// ─── Finished-puzzle SVG (for the onboarding backdrop) ──────────────────────
+// A standalone, self-contained SVG of a solved puzzle, in the board's style.
+// Used as the onboarding preview so the player sees a finished example WITHOUT
+// seeing the real puzzle they're about to play (which would let them pre-solve
+// it before the timer can start). Colours use the page's CSS variables, which
+// resolve because the SVG is injected into the live DOM.
+function buildPuzzleSVG(size, solution, waypoints) {
+  if (!size || !solution || solution.length < 2) return '';
+  const C = 100, D = size * C, rad = C * 0.32;
+  const ctr = ([r, c]) => [c * C + C / 2, r * C + C / 2];
+  let grid = '';
+  for (let i = 0; i <= size; i++) {
+    const p = i * C;
+    grid += `<line x1="${p}" y1="0" x2="${p}" y2="${D}" stroke="var(--rule)" stroke-width="2"/>`
+          + `<line x1="0" y1="${p}" x2="${D}" y2="${p}" stroke="var(--rule)" stroke-width="2"/>`;
+  }
+  const pts = solution.map(ctr).map(p => p.join(',')).join(' ');
+  const line = `<polyline points="${pts}" fill="none" stroke="var(--accent)" `
+             + `stroke-width="${C * 0.5}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
+  const wps = (waypoints || []).map(w => {
+    const [cx, cy] = ctr([w.r, w.c]);
+    return `<circle cx="${cx}" cy="${cy}" r="${rad}" fill="var(--paper)" stroke="var(--ink)" stroke-width="3"/>`
+         + `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" `
+         + `font-family="'Albert Sans',sans-serif" font-weight="700" font-size="${C * 0.42}" fill="var(--ink)">${w.n}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${D} ${D}" xmlns="http://www.w3.org/2000/svg">`
+       + `<rect x="0" y="0" width="${D}" height="${D}" rx="${C * 0.12}" fill="var(--paper)"/>`
+       + grid + line + wps + `</svg>`;
+}
+
+// A pleasant, pre-computed wiggly 6×6 sample shown to first-time players (or
+// anyone who has cleared local data) before they've completed one of their own.
+const SAMPLE_PUZZLE = {
+  size: 6,
+  solution: [[1,2],[0,2],[0,3],[1,3],[1,4],[0,4],[0,5],[1,5],[2,5],[2,4],[2,3],[2,2],[3,2],[3,3],[3,4],[3,5],[4,5],[5,5],[5,4],[4,4],[4,3],[5,3],[5,2],[4,2],[4,1],[5,1],[5,0],[4,0],[3,0],[3,1],[2,1],[2,0],[1,0],[1,1],[0,1],[0,0]],
+  waypoints: [{n:1,r:1,c:2},{n:2,r:2,c:3},{n:3,r:5,c:4},{n:4,r:4,c:0},{n:5,r:0,c:0}],
+};
+
+// Persist a snapshot of the just-completed puzzle (data, not a raster) so the
+// next onboarding backdrop can show the player's own last solve.
+function saveLastPuzzleSnapshot() {
+  try {
+    localStorage.setItem('trace.lastPuzzle', JSON.stringify({
+      size: SIZE,
+      solution: solution,
+      waypoints: waypoints.map(w => ({ n: w.n, r: w.r, c: w.c })),
+    }));
+  } catch (e) { /* storage full / unavailable — fall back to the sample */ }
+}
+function getLastPuzzleData() {
+  try {
+    const raw = localStorage.getItem('trace.lastPuzzle');
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (d && d.size && Array.isArray(d.solution) && d.solution.length > 1) return d;
+  } catch (e) { /* corrupt — ignore */ }
+  return null;
 }
 
 // ─── Render ─────────────────────────────────────────
@@ -2043,8 +2279,23 @@ function drawPath() {
   const h = boardWrap.clientHeight;
   overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
   overlay.innerHTML = '';
-  if (path.length === 0) return;
   const cw = w / SIZE;
+  // Cheat mode: faint dashed ghost of the intended solution, drawn underneath
+  // the player's path and visible even before they start.
+  if (cheatMode && solution && solution.length > 1) {
+    const gpts = solution.map(([r, c]) => cellCenter(r, c).join(',')).join(' ');
+    const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    ghost.setAttribute('points', gpts);
+    ghost.setAttribute('fill', 'none');
+    ghost.setAttribute('stroke', 'var(--ink)');
+    ghost.setAttribute('stroke-width', Math.max(2, cw * 0.06));
+    ghost.setAttribute('stroke-linecap', 'round');
+    ghost.setAttribute('stroke-linejoin', 'round');
+    ghost.setAttribute('stroke-dasharray', '1 7');
+    ghost.setAttribute('opacity', '0.5');
+    overlay.appendChild(ghost);
+  }
+  if (path.length === 0) return;
   const lineW = Math.max(10, cw * 0.55);
   const color = solved ? 'var(--success)' : 'var(--accent)';
   if (path.length === 1) {
@@ -2122,6 +2373,7 @@ function refresh() {
   updateStatus();
   if (typeof HintSystem !== 'undefined') HintSystem.onPathChange();
   if (solved && !wasSolved) {
+    saveLastPuzzleSnapshot();   // remember it for the onboarding backdrop
     Attempts.onSolved();
     showToast();
     if (typeof HintSystem !== 'undefined') HintSystem.onSolved();
@@ -2238,6 +2490,28 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   hideToast(); refresh();
 });
 document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ newSeed: true }));
+
+// Solution-style (wiggliness) slider on the main UI — a puzzle parameter like
+// Grid and Difficulty. It reflects the current puzzle's WIGGLE level, updates
+// its label live while dragging, and on release generates a fresh puzzle at
+// that level (also remembering it as the default for future sessions).
+(function () {
+  const slider = document.getElementById('mainWiggle');
+  const valEl  = document.getElementById('mainWiggleVal');
+  if (!slider) return;
+  slider.value = String(WIGGLE);
+  valEl.textContent = WIGGLE_LABELS[WIGGLE] || 'Balanced';
+  slider.addEventListener('input', () => {
+    valEl.textContent = WIGGLE_LABELS[+slider.value] || 'Balanced';
+  });
+  slider.addEventListener('change', () => {
+    const v = +slider.value;
+    if (v === WIGGLE) return;            // no real change → don't regenerate
+    WIGGLE = v;
+    setWigglePref(v);                    // remember as the default
+    newPuzzle({ newSeed: true });        // fresh puzzle in the new style
+  });
+})();
 document.getElementById('sizeSel').addEventListener('change', e => {
   SIZE = parseInt(e.target.value, 10);
   newPuzzle({ newSeed: false });
@@ -2301,16 +2575,19 @@ function hideToast() { toastEl.classList.remove('show'); }
 const Attempts = (function() {
   let counters = { moves: 0, backtracks: 0, undos: 0, clears: 0 };
   let startedAt = null;   // unix ms; null until first interaction
+  let cheatUsed = false;  // sticky once the solution is revealed during a try
 
   function reset() {
     counters = { moves: 0, backtracks: 0, undos: 0, clears: 0 };
     startedAt = null;
+    cheatUsed = false;
   }
   function ensureStarted() { if (startedAt === null) startedAt = Date.now(); }
   function recordMove()      { ensureStarted(); counters.moves++; }
   function recordBacktrack() { ensureStarted(); counters.backtracks++; }
   function recordUndo()      { counters.undos++; }
   function recordClear()     { counters.clears++; }
+  function recordCheat()     { cheatUsed = true; }   // stays flagged for this attempt
 
   // The snapshot is what gets persisted. Field names match the SQL schema
   // exactly so we can hand it straight to DB.saveAttempt() without mapping.
@@ -2327,6 +2604,7 @@ const Attempts = (function() {
       backtracks: counters.backtracks,
       undos: counters.undos,
       clears: counters.clears,
+      cheated: cheatUsed ? 1 : 0,
       solved: 1
     };
   }
@@ -2337,8 +2615,17 @@ const Attempts = (function() {
   }
 
   return { reset, recordMove, recordBacktrack, recordUndo, recordClear,
-           snapshot, onSolved };
+           recordCheat, snapshot, onSolved };
 })();
+
+// Toggle the solution outline. Turning it on flags the current attempt (the
+// flag is sticky until the next puzzle), so any logged result is marked a
+// cheat and kept off public leaderboards.
+function setCheatMode(on) {
+  cheatMode = !!on;
+  if (cheatMode) Attempts.recordCheat();
+  refresh();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DATABASE (sql.js, persisted to IndexedDB)
@@ -2381,6 +2668,7 @@ const DB = (function() {
       backtracks INTEGER NOT NULL DEFAULT 0,
       undos INTEGER NOT NULL DEFAULT 0,
       clears INTEGER NOT NULL DEFAULT 0,
+      cheated INTEGER NOT NULL DEFAULT 0,
       solved INTEGER NOT NULL DEFAULT 0,
       -- Visibility / provenance (v2 additions)
       is_public INTEGER NOT NULL DEFAULT 0,
@@ -2428,6 +2716,7 @@ const DB = (function() {
     "ALTER TABLE attempts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE attempts ADD COLUMN env_verified INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE attempts ADD COLUMN tos_version INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE attempts ADD COLUMN cheated INTEGER NOT NULL DEFAULT 0",
   ];
   function runMigrations() {
     for (const stmt of MIGRATIONS_V2) {
@@ -2851,8 +3140,13 @@ const LogModal = (function() {
     document.getElementById('logMoves').textContent      = snapshot.moves;
     document.getElementById('logBacktracks').textContent = snapshot.backtracks;
     document.getElementById('logUndos').textContent      = snapshot.undos;
-    // Default the per-attempt "Make public" checkbox from the user's profile.
-    document.getElementById('logIsPublic').checked = Profile.publicByDefault();
+    // Cheated solves are flagged and can't be made public.
+    const cheated = !!snapshot.cheated;
+    const flag = document.getElementById('logCheatFlag');
+    if (flag) flag.hidden = !cheated;
+    const pub = document.getElementById('logIsPublic');
+    pub.checked  = cheated ? false : Profile.publicByDefault();
+    pub.disabled = cheated;
     renderEnv(currentEnv);
     el.hidden = false;
   }
@@ -2873,8 +3167,9 @@ const LogModal = (function() {
     // Per-attempt visibility + provenance fields. These match server-side
     // expectations and let leaderboard/insights filtering work correctly.
     const profile = Profile.get() || {};
+    const cheated = !!currentSnapshot.cheated;
     const meta = {
-      is_public: document.getElementById('logIsPublic').checked ? 1 : 0,
+      is_public: (!cheated && document.getElementById('logIsPublic').checked) ? 1 : 0,
       env_verified: (currentEnv && !currentEnv.error) ? 1 : 0,
       tos_version: profile.tos_version || Profile.CLIENT_TOS_VERSION(),
     };
@@ -2935,6 +3230,7 @@ const StatsModal = (function() {
         <div class="attempt-when">${fmtDate(a.started_at)}</div>
         <div class="attempt-main">
           ${a.size}×${a.size} &nbsp;·&nbsp; ${a.difficulty}
+          ${a.cheated ? '<span style="color: var(--accent); font-weight: 600;">&nbsp;· cheat</span>' : ''}
           <span class="seed">&nbsp; seed ${a.seed}</span>
           <div style="font-size: 10px; color: var(--ink-soft); margin-top: 2px;">
             ${a.moves} moves, ${a.backtracks} backtracks, ${a.undos} undos
@@ -3418,14 +3714,20 @@ const Onboarding = (function() {
     el.hidden = true;
   });
 
-  // Entry point. The real puzzle is already rendered; overlay it inert and
-  // wait for the first tap. Prefetch the editable text in the background so
-  // the banner/card are ready by the time the player taps.
+  // Entry point. The real puzzle is generated and held behind the opaque
+  // overlay; we show a finished SAMPLE (or the player's last solve) as the
+  // backdrop so they can't study the real one before the timer can start.
+  // Wait for the first tap, prefetching the editable text meanwhile.
   function begin() {
     stage = 'inert';
     el.classList.remove('with-card', 'show-banner');
     banner.hidden = true;
     card.hidden = true;
+    const bd = document.getElementById('onboardingBackdrop');
+    if (bd) {
+      const data = getLastPuzzleData() || SAMPLE_PUZZLE;
+      bd.innerHTML = buildPuzzleSVG(data.size, data.solution, data.waypoints);
+    }
     el.hidden = false;
     uiTextReady = loadUiText();
   }
@@ -3444,6 +3746,11 @@ const SettingsModal = (function() {
   const publicCb     = document.getElementById('setPublicDefault');
   const lifestylePubCb = document.getElementById('setLifestylePublic');
   const lifestyleAggCb = document.getElementById('setLifestyleAgg');
+  const cheatCb        = document.getElementById('setCheatMode');
+
+  // Cheat mode applies immediately (it's a live view toggle, not a saved
+  // preference) and never persists across reloads.
+  if (cheatCb) cheatCb.addEventListener('change', () => setCheatMode(cheatCb.checked));
 
   function render() {
     const p = Profile.get();
@@ -3452,6 +3759,7 @@ const SettingsModal = (function() {
     publicCb.checked       = p.public_by_default === 1;
     lifestylePubCb.checked = p.share_lifestyle_publicly === 1;
     lifestyleAggCb.checked = p.share_lifestyle_in_aggregate === 1;
+    if (cheatCb) cheatCb.checked = cheatMode;
     idBlock.innerHTML = `
       <div class="env-row">
         <span class="env-l">Your ID</span>
@@ -3834,11 +4142,15 @@ document.getElementById('dailyBtn').addEventListener('click', async () => {
 });
 
 // Helper used by "today's daily" and "play this puzzle" links from the
-// leaderboard — load a specific puzzle without a page reload.
-function loadPuzzleByParams(seed, size, difficulty) {
+// leaderboard — load a specific puzzle without a page reload. The wiggle level
+// is explicit and defaults to WIGGLE_DEFAULT, so the daily is canonical
+// (w=2 for everyone) regardless of the player's current slider position.
+function loadPuzzleByParams(seed, size, difficulty, w) {
   SEED = seed; SIZE = size; DIFFICULTY = difficulty;
+  WIGGLE = (Number.isInteger(w) && w >= 0 && w <= 4) ? w : WIGGLE_DEFAULT;
   document.getElementById('sizeSel').value = String(size);
   document.getElementById('diffSel').value = difficulty;
+  syncWiggleUI();
   newPuzzle({ fromURL: true });
 }
 

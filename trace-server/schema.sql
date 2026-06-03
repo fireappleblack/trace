@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     undos           INTEGER NOT NULL DEFAULT 0,
     clears          INTEGER NOT NULL DEFAULT 0,
     solved          INTEGER NOT NULL DEFAULT 0,  -- 0 or 1
+    cheated         INTEGER NOT NULL DEFAULT 0,  -- solution was revealed during the attempt
 
     -- Visibility / provenance (v2 additions)
     is_public       INTEGER NOT NULL DEFAULT 0,
