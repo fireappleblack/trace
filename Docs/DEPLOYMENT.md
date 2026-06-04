@@ -8,7 +8,7 @@
 > For *who owns which files* across the parallel workstreams, see
 > **`RESPONSIBILITY.md`**.
 >
-> **Last updated:** 2026-05-31
+> **Last updated:** 2026-06-03
 
 ---
 
@@ -66,9 +66,9 @@ the detail. Environment facts that rarely change are in §1; the deploy steps ar
   `local-path` is retained but **non-default**, for caches/scratch only.
 - **TLS:** cert-manager (v1.20.1) + Let's Encrypt HTTP-01 via Traefik.
   ClusterIssuers: `letsencrypt-staging`, `letsencrypt-prod`.
-- **Images:** target registry is **GHCR** (`ghcr.io/<owner>/...`).
-  *(Interim: the trace image is still side-loaded as `localhost/trace:latest`;
-  GHCR migration pending — see §3.)*
+- **Images:** **GHCR** (`ghcr.io/<owner>/...`; the zip game is
+  `ghcr.io/fireappleblack/trace`), pulled via the `ghcr-pull` imagePullSecret.
+  *(Migration complete — side-loading and the in-cluster registry retired; §3.)*
 - **Domains (zip game):** `zip.hsabren.co.uk`, `zip.derangedimagination.com`,
   `zip.saidtheape.com` — all resolve to a node public IP, served on one shared
   SAN cert.
@@ -104,28 +104,32 @@ Recreate only on a fresh cluster.
 
 ## 3. Build & publish the image (GHCR — canonical)
 
-Nodes are **aarch64**, so build for ARM64. From the repo root:
+Nodes are **aarch64**, so build for ARM64. For the zip game, `<owner>` is
+`fireappleblack` (image `ghcr.io/fireappleblack/trace`). From the repo root:
 
 ```
-podman build -f trace-server/Containerfile -t ghcr.io/<owner>/trace:<version> .
-podman login ghcr.io                       # GitHub PAT with write:packages
-podman push ghcr.io/<owner>/trace:<version>
+podman build -f trace-server/Containerfile -t ghcr.io/fireappleblack/trace:<version> .
+echo $CR_PAT | podman login ghcr.io -u fireappleblack --password-stdin
+podman push ghcr.io/fireappleblack/trace:<version>
 ```
 
-First time only — make the package public, or create a pull secret:
+`$CR_PAT` must be a **classic** GitHub PAT with `write:packages` — GHCR rejects
+fine-grained tokens.
+
+The package is **private**, so the cluster needs a pull secret (one-time):
 
 ```
-kubectl -n trace create secret docker-registry ghcr \
-  --docker-server=ghcr.io --docker-username=<user> --docker-password=<PAT>
+kubectl -n trace create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=fireappleblack --docker-password=$CR_PAT
 ```
 
-and add `imagePullSecrets: [{ name: ghcr }]` to the Deployment.
+`trace-k8s.yaml` references it via `imagePullSecrets: [{ name: ghcr-pull }]`.
+Note: `kubectl set image` can't add that line to a running Deployment — when
+first switching to GHCR, **apply the manifest once** so the pull secret lands
+(see §7).
 
-> **Interim (until migration done):** the image is built on the Mac and
-> side-loaded into containerd on **each node** (`podman save` ->
-> `k3s ctr images import`), referenced as `localhost/trace:latest`.
-> `deploy.sh` still points at the retired in-cluster registry — repoint it to
-> GHCR or stop using it.
+> In normal use you don't run these by hand: **`deploy.sh <version>`** builds,
+> pushes, and rolls a versioned tag to GHCR in one step.
 
 ---
 
@@ -217,7 +221,12 @@ echo | openssl s_client -connect zip.hsabren.co.uk:443 \
   database on node-pinned local-path. Re-check `kubectl get storageclass`
   after any k3s upgrade.
 - **Staging before prod, always.** Let's Encrypt production has tight rate
-  limits. A staging-cert browser warning is the success signal, not a fault.
+  limits — notably the **duplicate-certificate** limit: 5 certs per *exact* SAN
+  set per 168h. Each `delete secret trace-tls` on the prod issuer triggers a
+  fresh issuance and burns one; repeated recreate cycles exhaust it (hit
+  2026-06-03 — locked out until the window cleared). Iterate on **staging**;
+  touch prod **once**. A staging-cert browser warning is the success signal, not
+  a fault.
 - **Add the HTTP->HTTPS redirect only *after* the prod cert is stable.** A
   global redirect breaks the HTTP-01 challenge (which serves on plain port 80).
   *(Still outstanding for trace.)*
@@ -231,6 +240,16 @@ echo | openssl s_client -connect zip.hsabren.co.uk:443 \
 - **Browsers cache staging certs per-domain.** If a domain warns after the prod
   flip but `openssl` confirms the cert is valid, it's the browser's cached
   state (check in Incognito), not the server.
+- **Postgres password drift.** Changing the `trace-db` Secret does **not** change
+  the password Postgres already baked at first `initdb` on its PVC. Old pods keep
+  the original; a new pod reads the new Secret → `password authentication failed`.
+  Reconcile *both* sides — make the Secret match the DB (copy from a working pod)
+  or change the DB to match the Secret (`\password`) — never edit the Secret
+  alone. (Hit 2026-06-03 during the GHCR rollout.)
+- **`kubectl set image` can't add `imagePullSecrets`.** Switching to a private
+  registry needs the pull secret *and* an `imagePullSecrets` reference on the
+  Deployment; `set image` only swaps the image tag. Apply the manifest once so
+  the live Deployment carries the secret, or new pods sit in `ImagePullBackOff`.
 
 ---
 

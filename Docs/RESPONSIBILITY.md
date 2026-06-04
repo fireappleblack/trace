@@ -1,6 +1,6 @@
 # Responsibility & Ownership
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-04
 
 This repo is no longer "the zip game" — it's becoming "the cluster," with the
 zip game, WordPress, a shared MariaDB, and a mail server as co-tenants of one
@@ -10,9 +10,9 @@ workstream should be editing it?** The goal is to stop two concurrent chats
 clobbering each other's work.
 
 > Companion docs: **`STATUS.md`** (state & risk), **`DEPLOYMENT.md`**
-> (canonical deploy/operate process), and **`DECISIONS.md`** (append-only
-> rationale & history). This file is *ownership*; those are *state*, *process*,
-> and *why*.
+> (canonical deploy/operate process), **`DECISIONS.md`** (append-only rationale
+> & history), and **`IDEAS.md`** (backlog / uncommitted ideas). This file is
+> *ownership*; those are *state*, *process*, *why*, and *maybe-later*.
 
 ---
 
@@ -39,10 +39,11 @@ clobbering each other's work.
 | `trace-server/deploy/trace-k8s.yaml` | Zip-game dev | App Deployment/Service/Ingress |
 | `trace-server/deploy/postgres.yaml` | Zip-game dev | The zip game's **dedicated** Postgres (app-specific, not shared) |
 | `trace-server/deploy/apply-db.sh`, `.secrets.env.example`, `.gitignore-snippet` | Zip-game dev | App DB secret tooling (the out-of-band pattern itself is documented in `DEPLOYMENT.md`) |
-| `trace-server/deploy/deploy.sh` | Zip-game dev | App build/push/rollout — **repoint to GHCR** (still targets the retired registry) |
+| `trace-server/deploy/deploy.sh` | Zip-game dev | App build/push/rollout — publishes versioned tags to GHCR (`ghcr.io/fireappleblack/trace`) |
 | `platform/cluster-issuers.yaml` | **Infrastructure** | Shared TLS issuers — used by *every* tenant. Moved into `platform/` during the v0.3.0 directory split |
-| `registry.yaml` | **Infrastructure** | Abandoned in-cluster registry (superseded by GHCR). Infra decides keep-for-reference or drop; relocate to `platform/` if kept |
+| `registry.yaml` | **Infrastructure** | Abandoned in-cluster registry — fully superseded by GHCR; safe to drop (keep only for reference) |
 | `STATUS.md`, `DEPLOYMENT.md`, `RESPONSIBILITY.md`, `DECISIONS.md` | Shared | Coordinate edits (§4); `DECISIONS.md` is append-only (§4) |
+| `IDEAS.md` | Zip-game dev | Backlog / parking-lot (uncommitted ideas) — distinct from `STATUS.md` (live) and `DECISIONS.md` (settled). Currently Trace-only; make it shared + tagged like `DECISIONS.md` if platform ideas start landing |
 | `.gitignore`, `.dockerignore` | Shared | Coordinate edits |
 | *(future)* shared MariaDB, mail (Stalwart), WordPress templates, backup CronJob | **Infrastructure** | Land under `platform/` and `wordpress/` (§3) |
 
@@ -74,7 +75,7 @@ subdirectories below are **additive** as MariaDB, mail, and WordPress land —
 │   └── ingress/                    # conventions, middleware e.g. HTTP->HTTPS redirect (future)
 ├── wordpress/                      # SHARED INFRA (infrastructure)
 │   └── site-template.yaml          # per-site templated manifest (future)
-└── STATUS.md DEPLOYMENT.md RESPONSIBILITY.md
+└── STATUS.md DEPLOYMENT.md RESPONSIBILITY.md DECISIONS.md IDEAS.md   # shared docs
 ```
 
 ---

@@ -32,6 +32,14 @@ spec:
       labels:
         app: trace
     spec:
+      # The app image is a PRIVATE package on GHCR, so the cluster needs a pull
+      # credential. Create it once (it's not in git):
+      #   kubectl -n trace create secret docker-registry ghcr-pull \
+      #     --docker-server=ghcr.io --docker-username=fireappleblack \
+      #     --docker-password=$CR_PAT
+      # (The public postgres:16-alpine initContainer below doesn't need it.)
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -57,7 +65,11 @@ spec:
                   key: POSTGRES_USER
       containers:
         - name: trace
-          image: localhost/trace:latest
+          # Bootstrap tag for the first `kubectl apply`. Thereafter deploy.sh
+          # bumps the live tag with `kubectl set image`, so this line drifts
+          # behind the running version — that's expected. Keep it at a tag that
+          # actually exists in GHCR so a fresh apply can pull.
+          image: ghcr.io/fireappleblack/trace:v0.4.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5000

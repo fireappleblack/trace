@@ -1,6 +1,6 @@
 # Trace — Status & Resilience Review
 
-**Checkpoint: 2026-05-31** (updated from 2026-05-29; infrastructure review folded in)
+**Checkpoint: 2026-06-03** (updated from 2026-05-31; zip-game + deploy changes folded in)
 
 A snapshot of where the project stands, what's already resilient, where it
 can fail, and which fixes are worth making before they hit diminishing
@@ -11,16 +11,26 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
-- **App:** TLS now covers three domains on one cert; the DB password is out of
-  git (gitignored secrets file + `apply-db.sh`); all player-facing copy moved
-  into the database with a new staged onboarding flow (inert puzzle → random
-  welcome banner → consent card).
-- **Infrastructure (this session):** Traefik + servicelb re-enabled (both had
-  been disabled at the k3s level); Postgres confirmed running on **Longhorn**
-  (replicas-2), with Longhorn set as the **sole default** StorageClass; TLS is
-  now **live with trusted production certs** on all three domains; cert-manager
-  installed; stale RustDesk ports closed; the k8s API (6443) confirmed
-  restricted to the private subnet.
+- **Zip-game & deploy (2026-06-03):** GHCR migration completed — image published
+  to `ghcr.io/fireappleblack/trace`, pulled via the `ghcr-pull` imagePullSecret,
+  with `deploy.sh` building/pushing/rolling versioned tags; side-loading and the
+  self-hosted registry retired. Added cheat mode (flagged, excluded from public
+  boards), wiggliness as a first-class `w` URL parameter with a main-UI slider,
+  and an onboarding **placeholder backdrop** (the board no longer shows the real
+  puzzle pre-consent — a sample/last-solve is shown instead). The server's
+  additive ADD COLUMN migration now includes `cheated`, so it self-applies on
+  deploy. ⚠️ **TLS regressed this session** (see §1): the edge is back on
+  Traefik's default self-signed cert and Let's Encrypt **production** is
+  rate-limited until 2026-06-05 00:58 UTC.
+- **App (2026-05-31):** TLS brought up across three domains on one cert; the DB
+  password moved out of git (gitignored secrets file + `apply-db.sh`); all
+  player-facing copy moved into the database with a new staged onboarding flow.
+- **Infrastructure (2026-05-31):** Traefik + servicelb re-enabled (both had been
+  disabled at the k3s level); Postgres confirmed running on **Longhorn**
+  (replicas-2), with Longhorn set as the **sole default** StorageClass;
+  cert-manager installed; trusted production certs issued on all three domains
+  (later regressed — see the 2026-06-03 note); stale RustDesk ports closed; the
+  k8s API (6443) confirmed restricted to the private subnet.
 
 ---
 
@@ -28,12 +38,16 @@ returns.
 
 **Application**
 - `trace.html` — single-file client: puzzle generator/solver, hints, retrace
-  input, consent gate, local SQLite-in-browser persistence, optional server
+  input, an optional cheat mode (solutions shown; attempts flagged and kept off
+  public leaderboards), adjustable path "wiggliness" (`w` URL parameter / main-UI
+  slider), consent gate, local SQLite-in-browser persistence, optional server
   sync. Served by the Flask app (one canonical copy, no duplication).
-- **Onboarding flow:** on load the player sees the real puzzle, inert; the
-  first tap reveals a small welcome banner (phrase chosen at random
-  client-side); its **OK** opens the data-protection options card; consent
-  saved → gameplay enabled. The board is locked through all three stages.
+- **Onboarding flow:** the real puzzle is generated up front but hidden; on load
+  the player sees a **sample backdrop** (a finished example, or their last solve)
+  so the puzzle can't be studied before the timer. The first tap reveals a small
+  welcome banner (phrase chosen at random client-side); its **OK** opens the
+  data-protection options card; consent saved → the real puzzle is revealed and
+  gameplay enabled. The board is locked through all three stages.
 - **Editable UI text in the database:** the `ui_text` table holds every
   player-facing string that may change for legal/design reasons — the welcome
   banner phrases, the consent-card copy, the ToS body, and the FAQ. One query
@@ -70,13 +84,19 @@ returns.
   **out-of-band** from a gitignored `.secrets.env` via `apply-db.sh` — no secret
   is in any committed manifest.
 - App: Deployment, 2 replicas, rolling updates, stateless against Postgres.
-- Images: moving to **GHCR** (public-IP nodes rule out the self-hosted insecure
-  registry). *(Interim: the trace image is still side-loaded as
-  `localhost/trace:latest`; GHCR migration pending — see §6.)*
+- Images: published to **GHCR** (`ghcr.io/fireappleblack/trace`), pulled via the
+  `ghcr-pull` imagePullSecret; `deploy.sh` builds/pushes/rolls versioned tags.
+  Side-loading and the self-hosted registry are retired.
 - TLS: cert-manager (v1.20.1) + Traefik + Let's Encrypt (HTTP-01), covering
   **three** hostnames on one SAN cert — `zip.hsabren.co.uk`,
-  `zip.derangedimagination.com`, `zip.saidtheape.com`. **Live with trusted
-  production certs** on all three.
+  `zip.derangedimagination.com`, `zip.saidtheape.com`. ⚠️ **Currently regressed
+  (2026-06-03):** the edge is serving Traefik's default self-signed cert; Let's
+  Encrypt **production** is rate-limited (duplicate-certificate limit, 5 per
+  exact SAN set per 168h) until **2026-06-05 00:58 UTC**. The HTTP-01 path is
+  proven (5 prior issuances), so recovery is: validate on **staging** now, then
+  flip to prod **once** after the window clears. Auto-renewal resumes once a
+  trusted cert is re-issued. *(TLS issuers are Infrastructure-owned — platform
+  workstream.)*
 
 ---
 
@@ -96,7 +116,7 @@ returns.
 - **Self-healing** — readiness/liveness probes on `/api/health` restart or
   drain unhealthy pods automatically.
 - **TLS auto-renewal** — cert-manager renews Let's Encrypt certs without
-  intervention.
+  intervention. *(Paused until the prod cert is re-issued — see §1.)*
 
 ---
 
@@ -144,6 +164,9 @@ Ordered roughly by stakes.
   base64 (not encrypted) in the cluster datastore — hence the secrets-encryption
   item below. **If the real password was ever committed before this change,
   rotate it** — scrubbing history doesn't reach existing clones/forks/backups.
+- **GHCR pull credential is out of git too** — the `ghcr-pull` imagePullSecret
+  (a classic PAT) is created imperatively, never committed; rotate by recreating
+  it (and the local `$CR_PAT`) if exposed.
 - **Secrets aren't encrypted at rest** by default in k3s — anyone with node or
   datastore access can read the Postgres password.
 - **No app-level auth or rate limiting.** The API is anonymous and public;
@@ -154,7 +177,8 @@ Ordered roughly by stakes.
   automated build or rollback.
 - **No PodDisruptionBudget** — a node drain could evict both app replicas at
   once.
-- **Additive-only schema migrations.** Adding columns is handled; anything
+- **Additive-only schema migrations.** Adding columns is handled by an idempotent
+  ADD COLUMN pass on startup (the `cheated` column landed this way); anything
   destructive or reshaping would be manual and risky.
 
 ### Observability
@@ -200,7 +224,7 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
   check gives 90% of the value for ~1% of the effort.
 - **NetworkPolicies / service mesh** — negligible benefit at this scale.
 - **CI/CD pipeline** — worthwhile only if deploy frequency rises; `deploy.sh`
-  (once repointed to GHCR) is enough for now.
+  (now on GHCR) is enough for now.
 - **Sealed Secrets / SOPS / Vault** — the gitignored-file + out-of-band Secret
   approach (now in place) is sufficient at this scale. SOPS+age or Sealed
   Secrets would be the upgrade if a GitOps/declarative workflow is wanted later.
@@ -209,14 +233,15 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
 
 ## 6. Outstanding setup tasks (separate from resilience)
 
-- ~~Finish TLS issuance (staging → prod)~~ — **DONE**: live with trusted
-  production certs on `https://zip.hsabren.co.uk`,
-  `https://zip.derangedimagination.com`, `https://zip.saidtheape.com`.
-- Add a safe **HTTP→HTTPS redirect** now that the cert is stable (a global
+- **Re-issue TLS** (regressed 2026-06-03 — see §1): validate on staging now,
+  then after the prod rate-limit clears (**2026-06-05 00:58 UTC**) flip the
+  Ingress to `letsencrypt-prod` and delete `trace-tls` **once** to trigger a
+  single trusted issuance. *(Was previously live with trusted prod certs.)*
+- Add a safe **HTTP→HTTPS redirect** once the cert is stable again (a global
   redirect added earlier would have broken the ACME HTTP-01 challenge).
-- Complete the **GHCR migration** (login, package, imagePullSecret) and
-  **update `deploy.sh`** — its `REGISTRY`/`IMAGE` still point at the abandoned
-  self-hosted registry (`redland001…:30500`).
+- ~~Complete the **GHCR migration**~~ — **DONE (2026-06-03):** image on
+  `ghcr.io/fireappleblack/trace`, pulled via `ghcr-pull`; `deploy.sh` repointed
+  to GHCR; side-loading and the self-hosted registry retired.
 - Build an **admin backend** so welcome-banner phrases and consent-card copy in
   `ui_text` can be edited by an admin without DB write access or code changes
   (interim method is direct SQL). *(Reminder carried forward.)*

@@ -25,6 +25,47 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-03 — [zip-game] GHCR migration completed for the trace image
+**Decision:** The Trace image is now published to `ghcr.io/fireappleblack/trace`
+and pulled by the cluster via a `ghcr-pull` imagePullSecret; `deploy.sh` builds,
+pushes, and rolls versioned tags to GHCR. Side-loading (`localhost/trace:latest`)
+and the abandoned in-cluster registry are retired.
+**Why:** Completes the 2026-05-31 [cross-cutting] "Images via GHCR" decision,
+which left the migration outstanding. Pull-secret is named `ghcr-pull` (the live
+cluster's name); GHCR requires a **classic** PAT with `write:packages`
+(fine-grained tokens are rejected). Credential follows the out-of-band,
+never-committed pattern.
+**Refs:** supersedes the "outstanding" status of 2026-05-31 [cross-cutting]
+"Images via GHCR"; DEPLOYMENT.md §3; STATUS.md §1, §6.
+
+### 2026-06-03 — [zip-game] Cheat mode is flagged and excluded from public stats
+**Decision:** Add an optional cheat mode (shows the solution). Any attempt made
+with it on is flagged (`cheated`), forced non-public, and excluded from public
+leaderboards and aggregates. The server stores `cheated` on `attempts`, added to
+the idempotent startup ADD COLUMN migration so it self-applies on deploy.
+**Why:** Keep a learning aid available without letting it pollute honest
+rankings; the additive migration means no manual `psql` on existing databases.
+**Refs:** STATUS.md §3 (Operational — additive migrations); schema.sql, db.py.
+
+### 2026-06-03 — [zip-game] Wiggliness is a first-class `w` URL parameter
+**Decision:** Promote path "wiggliness" (turn ratio) from a seed-suffix scheme to
+a first-class `w` URL parameter (0–4, default 2 = natural), with a slider on the
+main UI. The daily puzzle stays canonical at the default, so shared/daily links
+are unaffected.
+**Why:** Cleaner than encoding it in the seed, and lets players tune difficulty
+feel without changing the puzzle identity.
+**Refs:** trace.html; IDEAS.md (leaderboard-key caveat noted there).
+
+### 2026-06-03 — [zip-game] Onboarding shows a placeholder backdrop, not the real puzzle
+**Decision:** During the onboarding/consent stages the board shows a *sample*
+backdrop (a finished example, or the player's last solve) rather than the real
+puzzle, which is generated but hidden until consent. The real puzzle is revealed
+only when gameplay is enabled.
+**Why:** The previous flow exposed the real puzzle inert on load, which let it be
+studied before the timer started. The backdrop preserves the visual without
+giving that head start.
+**Refs:** STATUS.md §1 (Onboarding flow); trace.html.
+
 ### 2026-05-31 — [cross-cutting] Documentation model: four root docs by concern
 **Decision:** Keep four top-level Markdown docs, each organised by *concern*, not
 by workstream: `STATUS.md` (state & risk), `DEPLOYMENT.md` (canonical

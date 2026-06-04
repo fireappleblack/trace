@@ -50,3 +50,49 @@ behind the admin UI for editing.
   onboarding (new / un-consented users). Could optionally surface the
   last-solve snapshot elsewhere (e.g. a small "your last solve" flourish), but
   not obviously worth it.
+
+## Generation tuning — fix "Really Wiggly", add a walls slider, add randomisers
+
+Raised 2026-06-03. A cluster of related generation-control ideas.
+
+- **"Really Wiggly" (`w=4`) is too predictable — the real bug to fix.** At the
+  top of the range the path bends at nearly every opportunity, which paradoxically
+  makes it *easier*: the solver can just take every available turn and walk it.
+  Example: `…/?seed=4l62ge&size=8&difficulty=fiendish&w=4` was solvable by
+  wiggling at every step. The failure mode: maximal turn-ratio collapses the
+  branching factor (few legal non-turning moves left), so "always turn" becomes a
+  near-deterministic winning heuristic. Fixes to explore — cap the top of the
+  range below pathological wiggliness; or make high `w` target a turn-ratio
+  *band* rather than "as wiggly as possible"; or inject some straight runs so
+  "always turn" stops being a valid strategy. **Decision for now:** keep
+  Really-Wiggly as a user-chosen option (it's a choice, not a default), but treat
+  the predictability as a real defect to address.
+- **New "walls" slider** — the other obvious difficulty lever, independent of
+  wiggliness. Range from **"no walls"** to **"practically a maze (amaze! amaze!)"**.
+  Likely a first-class URL parameter alongside `w` (e.g. a `walls`/`m` param) with
+  its own main-UI slider, same pattern as the wiggliness control. Open question:
+  how walls interact with guaranteed-solvability of the Hamiltonian path (must not
+  wall off a required transition).
+- **"Chef's choice" per control** — a button next to each slider/drop-down (grid
+  size, difficulty, wiggliness, walls) that picks *that one* parameter at random.
+  Leaves the others as set.
+- **"Chef's gone home; let the restaurant decide"** *(working name — may be
+  renamed)* — a single button that randomises **every** parameter at once (grid
+  size, difficulty, wiggliness, wall proliferation) on each press, for a fully
+  surprise puzzle.
+
+Implementation notes when this is picked up: walls + a random-all button mean the
+URL needs to round-trip every generation parameter (already true for `seed`,
+`size`, `difficulty`, `w`; add the walls param), so a randomised puzzle is still
+shareable/reproducible.
+
+**Settled (2026-06-03): randomisers always write their rolled values into the
+URL.** Every generated puzzle — including anything produced by a "chef's choice"
+or "restaurant decides" press — must be fully shareable/reproducible. The cost of
+writing the rolled values back is negligible programmatically and conceptually,
+whereas a puzzle that *can't* be shared breaks the expectation that the URL *is*
+the puzzle, and would disappoint. So the randomisers resolve to concrete
+parameter values and call the same `updateURL` path as the manual controls — no
+ephemeral/unshareable generation states. (Practical consequence: a randomise
+button rolls values, writes them to the URL, then generates from them — not the
+reverse.)

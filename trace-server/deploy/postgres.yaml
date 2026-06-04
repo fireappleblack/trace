@@ -103,13 +103,17 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
-  # Each pod gets its own PVC from this template. local-path (the k3s default
-  # StorageClass) provisions it automatically on the node.
+  # Each pod gets its own PVC from this template. storageClassName is set
+  # EXPLICITLY to longhorn (replicated across both nodes, so the DB survives a
+  # node loss). Never rely on the cluster default: k3s re-marks local-path as
+  # default on upgrade, and a local-path PVC would pin Postgres to one node and
+  # lose that resilience. See DEPLOYMENT.md §7.
   volumeClaimTemplates:
     - metadata:
         name: pgdata
       spec:
         accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
         resources:
           requests:
             storage: 2Gi
