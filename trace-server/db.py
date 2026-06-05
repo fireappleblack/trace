@@ -387,6 +387,7 @@ ATTEMPTS_V2_COLUMNS = [
     ('is_public',    'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
     ('env_verified', 'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
     ('tos_version',  'INTEGER NOT NULL DEFAULT 1', 'INTEGER NOT NULL DEFAULT 1'),
+    ('cheated',      'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
 ]
 
 def init_schema(conn, backend, schema_path=None):
