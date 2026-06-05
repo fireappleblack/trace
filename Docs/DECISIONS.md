@@ -173,3 +173,21 @@ zip game's Postgres.
 12 GB nodes than one engine per site. Capacity ~10–20 low-traffic sites
 alongside the zip game and mail.
 **Refs:** to land under `platform/mariadb/` and `wordpress/`.
+
+### 2026-06-05 — [platform] Use `cmctl renew`, not secret-deletion, for prod TLS flips
+**Decision:** The staging→prod cutover no longer deletes the trace-tls secret.
+Flip the issuer annotation, then `cmctl renew trace-tls -n trace` for a single
+controlled re-issue that keeps the old secret until the new cert is Ready.
+**Why:** Deleting the secret triggers re-issuance AND risks a second trigger
+(generation bump) racing it — two issuances against the 5-per-168h budget from
+one action, plus an untrusted-cert gap. Hit this 2026-06-05 (issuance #6 → 429
+while a valid prod cert already sat in trace-tls-2).
+**Refs:** DEPLOYMENT.md §5 (to update); supersedes the "delete secret" step there.
+
+### 2026-06-05 — [platform] Decouple the three zip domains into per-host TLS secrets
+**Decision (to do once clear of the rate limit):** Split the single 3-SAN cert
+into one tls entry + secretName per host, so each domain has its own
+5-per-168h budget and CT-log footprint.
+**Why:** Two lockouts now on the shared SAN set; any re-issue gambles all three
+domains against one combined budget. Per-host certs isolate that blast radius.
+**Refs:** trace-k8s.yaml (existing comment foreshadows this); STATUS.md §3.
