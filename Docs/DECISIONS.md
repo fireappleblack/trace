@@ -25,6 +25,20 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-06 — [zip-game] Walls slider minimum relabelled "Fewest walls" (was "No walls")
+**Decision:** Renamed the walls slider's level-0 label from "No walls" to
+"Fewest walls" (everywhere: `WALL_LABELS[0]`, the markup default, and the
+slider's live/fallback strings). No behaviour change — level 0 still adds zero
+*extra* walls.
+**Why:** Level 0 means "no walls *beyond* what uniqueness enforcement needs",
+not a guaranteed wall-free board — depending on the other parameters, some walls
+are necessary for a unique solution. "No walls" overpromised, and forcing
+regeneration until a board happened to need none would be wasteful. "Fewest
+walls" states honestly what the minimum delivers.
+**Refs:** trace.html `WALL_LABELS`, `syncWallsUI`, walls slider wiring;
+builds on DECISIONS.md 2026-06-06 "Walls slider".
+App up to Version 0.8.4
+
 ### 2026-06-06 — [platform] Front public sites with Cloudflare (CDN/WAF/DDoS) + origin lockdown
 **Decision:** Put public sites — the zip game now, WordPress and future
 résumé-piece sites next — behind Cloudflare. **Free** tier to start; **Pro**
