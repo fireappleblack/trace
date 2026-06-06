@@ -1,0 +1,74 @@
+# flatten:begin
+# repo-path: platform/cloudflare/cloudflare-dns01-issuer.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Let's Encrypt via Cloudflare DNS-01 — replaces HTTP-01 once behind Cloudflare
+# ─────────────────────────────────────────────────────────────────────────
+# WHY this exists: putting sites behind Cloudflare means locking the origin's
+# ports 80/443 to Cloudflare's IP ranges. That lockdown BREAKS HTTP-01, which
+# needs Let's Encrypt to reach port 80 directly (LE is not a Cloudflare IP).
+# DNS-01 validates by writing a TXT record via the Cloudflare API instead, so:
+#   • no inbound port is needed for issuance/renewal (lockdown-safe),
+#   • the origin keeps a browser-TRUSTED LE cert (clean Cloudflare bypass),
+#   • the delete-secret / port-80-redirect footguns (DEPLOYMENT.md §7) go away,
+#   • wildcards become possible (DNS-01 only) if ever wanted.
+#
+# These run ALONGSIDE the existing HTTP-01 issuers (platform/cluster-issuers.yaml)
+# — they don't replace that file. You migrate an Ingress by changing its
+# `cert-manager.io/cluster-issuer` annotation to one of these, then issuing once.
+#
+# SETUP (out-of-band — the token never enters git):
+#   1. Cloudflare dashboard → My Profile → API Tokens → Create Token.
+#      Permissions: Zone : DNS : Edit  AND  Zone : Zone : Read.
+#      Zone Resources: include the specific zones (hsabren.co.uk,
+#      derangedimagination.com, saidtheape.com, + any future site domains).
+#   2. kubectl -n cert-manager create secret generic cloudflare-api-token \
+#        --from-literal=api-token='<THE_TOKEN>'
+#      (or via a temp env-file + --from-env-file, per the project's secret
+#       convention, if the token contains shell-significant characters.)
+#   3. Put your real email in BOTH issuers below, then:
+#        kubectl apply -f platform/cloudflare/cloudflare-dns01-issuer.yaml
+#   4. Migrate an Ingress (staging first, exactly like the HTTP-01 flow):
+#        kubectl -n <ns> annotate ingress <name> \
+#          cert-manager.io/cluster-issuer=letsencrypt-dns01-staging --overwrite
+#        cmctl renew <cert-name> -n <ns>          # one controlled re-issue
+#        kubectl -n <ns> get certificate -w
+#      Confirm the staging cert, then flip the annotation to
+#      letsencrypt-dns01-prod and `cmctl renew` once more. NEVER delete the
+#      secret to force it (DEPLOYMENT.md §7).
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: CHANGE-ME@example.com            # use the same real email as the HTTP-01 issuers
+    privateKeySecretRef:
+      name: letsencrypt-dns01-staging-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: CHANGE-ME@example.com
+    privateKeySecretRef:
+      name: letsencrypt-dns01-prod-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

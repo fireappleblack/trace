@@ -1,0 +1,55 @@
+# flatten:begin
+# repo-path: platform/cluster-issuers.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Let's Encrypt ClusterIssuers for cert-manager (HTTP-01 via Traefik)
+# ─────────────────────────────────────────────────────────────────────────
+#   kubectl apply -f trace-server/deploy/cluster-issuers.yaml
+#
+# Two issuers:
+#   • letsencrypt-staging — use this FIRST. Let's Encrypt's staging CA has
+#     generous rate limits, so you can debug the challenge flow without
+#     burning the strict production limits. Its certs are NOT browser-trusted
+#     (you'll get a warning) — that's expected; it only proves the plumbing.
+#   • letsencrypt-prod — switch to this once staging issues cleanly.
+#
+# ⚠️  EDIT the two `email:` lines below to a real address before applying.
+#     Let's Encrypt uses it for expiry warnings.
+#
+# HTTP-01 challenge requires Let's Encrypt to reach
+#   http://zip.hsabren.co.uk/.well-known/acme-challenge/...
+# on PORT 80 from the public internet — so port 80 (and 443 for serving) must
+# be open on the node the DNS points at. See the runbook in README.
+# ─────────────────────────────────────────────────────────────────────────
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: bwmetcalfe@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: bwmetcalfe@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik

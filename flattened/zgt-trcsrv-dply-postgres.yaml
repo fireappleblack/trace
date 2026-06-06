@@ -1,0 +1,124 @@
+# flatten:begin
+# repo-path: trace-server/deploy/postgres.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trace — dedicated PostgreSQL database
+# ─────────────────────────────────────────────────────────────────────────
+# Standalone, single-instance Postgres for Trace only. Owns the `trace`
+# namespace, a headless Service for stable DNS, and a StatefulSet with its own
+# PersistentVolumeClaim.
+#
+# NOTE: the credentials Secret (`trace-db`) is NOT in this file — it must
+# never be committed to git. It's created out-of-band from a gitignored
+# secrets file. Use the helper, which creates the namespace, the Secret, and
+# then applies this manifest in the right order:
+#
+#     cp trace-server/deploy/.secrets.env.example trace-server/deploy/.secrets.env
+#     # edit .secrets.env, set POSTGRES_PASSWORD to a real value
+#     ./trace-server/deploy/apply-db.sh
+#
+# The StatefulSet below reads POSTGRES_USER/PASSWORD/DB from that Secret via
+# envFrom; the app (trace-k8s.yaml) reads the same Secret. If you apply this
+# file directly without the Secret existing, the pod will wait (CreateContainer
+# error) until the Secret is present — apply-db.sh avoids that by creating it
+# first.
+# ─────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trace
+---
+# Headless Service (clusterIP: None) — gives the StatefulSet pod stable DNS at
+# trace-postgres.trace.svc.cluster.local. With one pod this name resolves to
+# that pod's IP, which is exactly what the app connects to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-postgres
+  namespace: trace
+  labels:
+    app: trace-postgres
+spec:
+  clusterIP: None
+  selector:
+    app: trace-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trace-postgres
+  namespace: trace
+  labels:
+    app: trace-postgres
+spec:
+  serviceName: trace-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trace-postgres
+  template:
+    metadata:
+      labels:
+        app: trace-postgres
+    spec:
+      # The official postgres image starts as root and steps down to the
+      # postgres user (uid 999) internally. fsGroup makes the mounted data
+      # volume writable by that user.
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: trace-db   # provides POSTGRES_USER/PASSWORD/DB
+          env:
+            # Keep the actual data in a subdirectory of the mount. The image
+            # recommends this so it never collides with a volume root that
+            # isn't empty (e.g. a lost+found directory).
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "trace", "-d", "trace"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "trace", "-d", "trace"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+  # Each pod gets its own PVC from this template. storageClassName is set
+  # EXPLICITLY to longhorn (replicated across both nodes, so the DB survives a
+  # node loss). Never rely on the cluster default: k3s re-marks local-path as
+  # default on upgrade, and a local-path PVC would pin Postgres to one node and
+  # lose that resilience. See DEPLOYMENT.md §7.
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 2Gi

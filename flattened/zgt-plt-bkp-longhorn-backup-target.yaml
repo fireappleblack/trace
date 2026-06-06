@@ -1,0 +1,52 @@
+# flatten:begin
+# repo-path: platform/backups/longhorn-backup-target.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Longhorn backup target — block-level backups to the SAME Object Storage
+# ─────────────────────────────────────────────────────────────────────────
+# This is the SECOND, complementary backup layer. The logical dumps
+# (backups.yaml) are the primary, portable, engine-independent backup and the
+# one that saves you from a bad migration / accidental DROP. Longhorn volume
+# backups add point-in-time block snapshots of the PVCs and are the fastest
+# path to "bring the whole volume back". Keep both.
+#
+# These two Setting objects ARE safe to commit (no secrets). The S3 credential
+# is created OUT-OF-BAND and is never in git — see the command block below.
+#
+# OCI S3-compat note: AWS_ENDPOINTS must be the OCI compat endpoint, and the
+# backup-target string is  s3://<bucket>@<region>/<optional/path> . The
+# <region> in the s3:// string must be a real region token; OCI compat
+# tolerates it because the true endpoint is in AWS_ENDPOINTS.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# 1. Create the credential secret OUT-OF-BAND (reuse your .secrets.env values):
+#
+#    kubectl -n longhorn-system create secret generic oci-backup-cred \
+#      --from-literal=AWS_ACCESS_KEY_ID='<OS_ACCESS_KEY_ID>' \
+#      --from-literal=AWS_SECRET_ACCESS_KEY='<OS_SECRET_ACCESS_KEY>' \
+#      --from-literal=AWS_ENDPOINTS='<OS_ENDPOINT>'
+#
+#    (If a key contains & ^ @ etc., prefer the env-file form to avoid shell
+#     interpretation, exactly as apply-backups.sh does.)
+#
+# 2. Apply this file, then confirm in the Longhorn UI that the backup target
+#    shows green:
+#
+#    kubectl apply -f platform/backups/longhorn-backup-target.yaml
+#    kubectl -n longhorn-system get settings.longhorn.io backup-target -o yaml
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: backup-target
+  namespace: longhorn-system
+value: "s3://CHANGE-ME-bucket@uk-london-1/longhorn"
+---
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: backup-target-credential-secret
+  namespace: longhorn-system
+value: "oci-backup-cred"

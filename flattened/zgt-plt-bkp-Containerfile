@@ -1,0 +1,44 @@
+# flatten:begin
+# repo-path: platform/backups/Containerfile
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# cluster-backup — tools-only image for logical DB dumps → Object Storage
+# ─────────────────────────────────────────────────────────────────────────
+# Deliberately carries NO backup logic. The dump/upload script is mounted from
+# a ConfigMap at runtime (see backups.yaml / apply-backups.sh), so you can edit
+# the script and re-create the ConfigMap WITHOUT rebuilding or re-pushing this
+# image. Rebuild only when the *tools* change (client major versions, rclone).
+#
+# Build (ARM64 — the nodes are aarch64), tag, push to GHCR, same as the app:
+#   podman build -f platform/backups/Containerfile \
+#     -t ghcr.io/fireappleblack/cluster-backup:<version> platform/backups
+#   echo $CR_PAT | podman login ghcr.io -u fireappleblack --password-stdin
+#   podman push ghcr.io/fireappleblack/cluster-backup:<version>
+#
+# This image holds no secrets and no site data — you MAY make the GHCR package
+# public to skip the pull secret. If you keep it private, apply-backups.sh
+# copies the existing `ghcr-pull` secret into the backups namespace for you.
+#
+# Pin the Postgres client major to the SERVER major (16) so pg_dump output is
+# never produced by an older client than the server. alpine 3.20 ships
+# postgresql16-client and mariadb-client (good against MariaDB 11).
+# ─────────────────────────────────────────────────────────────────────────
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+      bash \
+      coreutils \
+      gzip \
+      tzdata \
+      ca-certificates \
+      postgresql16-client \
+      mariadb-client \
+      rclone \
+ && rclone version \
+ && pg_dump --version \
+ && mariadb-dump --version
+
+# The script is mounted at /scripts/backup.sh from a ConfigMap at runtime.
+ENTRYPOINT ["/bin/bash"]
