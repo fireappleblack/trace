@@ -1337,7 +1337,7 @@
     <span class="wiggle-bar-label">Walls</span>
     <input type="range" id="mainWalls" class="wiggle-range" min="0" max="4" step="1" value="0"
            aria-label="Wall density, from no walls to a maze" />
-    <span class="wiggle-bar-val" id="mainWallsVal">No walls</span>
+    <span class="wiggle-bar-val" id="mainWallsVal">Fewest walls</span>
   </div>
 
   <div class="settings">
@@ -1869,7 +1869,7 @@ let WIGGLE = getWigglePref();                      // current puzzle's level (li
 // fraction of available non-solution edges to wall at each level.
 const WALLS_DEFAULT = 0;                            // no extra walls = today's behaviour
 const WALL_FRAC   = { 0: 0, 1: 0.18, 2: 0.34, 3: 0.52, 4: 0.72 };
-const WALL_LABELS = ['No walls', 'A few walls', 'Some walls', 'Many walls', 'A-maze-ing'];
+const WALL_LABELS = ['Fewest walls', 'A few walls', 'Some walls', 'Many walls', 'A-maze-ing'];
 
 function getWallsPref() {
   const v = parseInt(localStorage.getItem('trace.walls'), 10);
@@ -1882,7 +1882,7 @@ function syncWallsUI() {
   const s = document.getElementById('mainWalls');
   if (s) s.value = String(WALLS);
   const v = document.getElementById('mainWallsVal');
-  if (v) v.textContent = WALL_LABELS[WALLS] || 'No walls';
+  if (v) v.textContent = WALL_LABELS[WALLS] || 'Fewest walls';
 }
 
 // Layer extra walls onto the global `walls` set for the current WALLS level.
@@ -2632,9 +2632,9 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
   const valEl  = document.getElementById('mainWallsVal');
   if (!slider) return;
   slider.value = String(WALLS);
-  valEl.textContent = WALL_LABELS[WALLS] || 'No walls';
+  valEl.textContent = WALL_LABELS[WALLS] || 'Fewest walls';
   slider.addEventListener('input', () => {
-    valEl.textContent = WALL_LABELS[+slider.value] || 'No walls';
+    valEl.textContent = WALL_LABELS[+slider.value] || 'Fewest walls';
   });
   slider.addEventListener('change', () => {
     const v = +slider.value;
