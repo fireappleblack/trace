@@ -1,4 +1,9 @@
-﻿Name: yellowland001
+﻿# flatten:begin
+# repo-path: Docs/Claude OCI host _ networking _ security context.txt
+# generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+# flatten:end
+
+Name: yellowland001
 Public Hostname: yellowland001.hsabren.co.uk
 Public IP: 132.145.23.20
 Private IP: 10.0.0.187

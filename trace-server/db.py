@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: trace-server/db.py
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 """
 db.py — thin data-access layer for the trace server.
 

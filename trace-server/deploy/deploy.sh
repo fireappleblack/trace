@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: trace-server/deploy/deploy.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # One-command build + push + rollout for the trace app, with versioned tags.
 #

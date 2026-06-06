@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: .dockerignore
+# generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+# flatten:end
+
 # Build-context excludes (read by Podman and Docker).
 # Keeps the image lean and prevents local state from leaking into the image.
 # This file belongs at the build-context root — the directory that contains

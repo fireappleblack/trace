@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: wordpress/apply-site.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # apply-site.sh — stand up (or update) one WordPress site on the shared MariaDB
 # ─────────────────────────────────────────────────────────────────────────

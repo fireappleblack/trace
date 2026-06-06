@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: trace-server/requirements.txt
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # Trace server dependencies
 #
 # Flask        — web framework

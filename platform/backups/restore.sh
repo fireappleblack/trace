@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: platform/backups/restore.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # restore.sh — restore ONE logical dump from Object Storage into a database.
 # ─────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: platform/cloudflare/cf-proxy.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # cf-proxy.sh — flip the Cloudflare proxy ON or OFF for the sites in
 # proxied-hosts.conf. This is the data-plane half of the outage bypass:

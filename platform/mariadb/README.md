@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: platform/mariadb/README.md
+     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Shared MariaDB (platform)
 
 One MariaDB engine, a database + least-privilege user **per tenant**

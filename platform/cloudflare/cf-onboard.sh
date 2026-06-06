@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: platform/cloudflare/cf-onboard.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # cf-onboard.sh — put one hostname behind Cloudflare with the standard, safe
 # settings, so adding a new site is one command + a couple of dashboard clicks.

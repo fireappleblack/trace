@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: platform/cloudflare/FALLBACK.md
+     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Cloudflare outage — fallback plan (platform)
 
 How to stay up, calmly and fast, when Cloudflare itself fails — as on

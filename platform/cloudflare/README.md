@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: platform/cloudflare/README.md
+     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Cloudflare edge — reusable pattern (platform)
 
 Put any public site on the cluster behind Cloudflare for CDN, DDoS protection,

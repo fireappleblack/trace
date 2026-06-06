@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: platform/cluster-issuers.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # Let's Encrypt ClusterIssuers for cert-manager (HTTP-01 via Traefik)
 # ─────────────────────────────────────────────────────────────────────────

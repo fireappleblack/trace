@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: trace-server/app.py
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 """
 app.py — Flask server for trace.
 

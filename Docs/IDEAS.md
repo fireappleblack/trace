@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: Docs/IDEAS.md
+     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Trace — Ideas / backlog
 
 Loose, not-yet-committed ideas. Unlike `STATUS.md` (which tracks the live

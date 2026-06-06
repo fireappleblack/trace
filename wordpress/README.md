@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: wordpress/README.md
+     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+flatten:end -->
+
 # WordPress (platform) — LEMP
 
 One **two-container pod per site** (Nginx + PHP-FPM), single replica each, all

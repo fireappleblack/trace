@@ -1,3 +1,8 @@
+# flatten:begin
+# repo-path: platform/cloudflare/cloudflare-dns01-issuer.yaml
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # Let's Encrypt via Cloudflare DNS-01 — replaces HTTP-01 once behind Cloudflare
 # ─────────────────────────────────────────────────────────────────────────

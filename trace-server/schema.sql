@@ -1,3 +1,8 @@
+-- flatten:begin
+-- repo-path: trace-server/schema.sql
+-- generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+-- flatten:end
+
 -- ─────────────────────────────────────────────────────────────────────────
 -- TRACE — server-side schema (v2: adds users, daily_puzzles, consent flags)
 -- ─────────────────────────────────────────────────────────────────────────

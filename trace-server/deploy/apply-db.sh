@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: trace-server/deploy/apply-db.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # Create/refresh the database Secret from the gitignored .secrets.env, then
 # apply the Postgres manifest — in the right order so the StatefulSet finds

@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: Docs/STATUS.md
+     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Trace — Status & Resilience Review
 
 **Checkpoint: 2026-06-03** (updated from 2026-05-31; zip-game + deploy changes folded in)

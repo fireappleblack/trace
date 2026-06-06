@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: platform/cloudflare/origin-firewall.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # origin-firewall.sh — host firewalld layer for the Cloudflare origin lockdown.
 # Run ON EACH NODE (redland001 AND yellowland001), as root.

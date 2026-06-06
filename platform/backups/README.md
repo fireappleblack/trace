@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: platform/backups/README.md
+     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+flatten:end -->
+
 # Cluster backups (platform)
 
 Off-cluster logical backups of every database → Oracle Object Storage, plus a

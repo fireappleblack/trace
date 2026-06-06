@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: platform/backups/backup.sh
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # backup.sh — logical dumps of every cluster database → Oracle Object Storage
 # ─────────────────────────────────────────────────────────────────────────
