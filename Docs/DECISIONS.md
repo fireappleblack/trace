@@ -25,6 +25,28 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-06 — [zip-game] Client build version stamped into the client and logged on each attempt
+**Decision:** Added a `TRACE_VERSION` constant to `trace.html`, auto-stamped by
+`deploy.sh` at build time (idempotent regex on the value, so it always matches
+the deployed image tag; defaults to `'dev'` when unstamped). It's shown subtly
+in the footer, exposed as `window.TRACE_VERSION`, and attached to every attempt
+as a new `client_version` column (client SCHEMA + sql.js migration, plus
+`schema.sql`, `ALLOWED_ATTEMPT_COLUMNS`, and `ATTEMPTS_V2_COLUMNS` server-side).
+**Why:** A single-file static client caches hard, so users run stale builds for
+days — a version stamp is what separates "known bug, already fixed" from a live
+regression, and lets an odd attempt row be tied to the exact client that wrote
+it. **Logged, never trusted:** nothing reads `client_version` back into
+leaderboard/scoring/gate logic; `insert_attempt` coerces it to `str(...)[:64]`
+so a hostile client can't write an oversized blob (the parameterised INSERT
+already handles injection); a missing/junk value never blocks a legitimate
+attempt. Hiding the version is explicitly *not* treated as a security control —
+the file is view-source anyway — so the backend stays hardened on the assumption
+it's public. Stamping in place means the committed `trace.html` reflects the
+last-deployed tag (a feature: the repo records what's live).
+**Refs:** trace.html `TRACE_VERSION` + `snapshot()`; deploy.sh stamp step;
+db.py `ALLOWED_ATTEMPT_COLUMNS`/`ATTEMPTS_V2_COLUMNS`/`insert_attempt`;
+schema.sql `attempts.client_version`; DEPLOYMENT.md §3.
+
 ### 2026-06-06 — [zip-game] Walls slider minimum relabelled "Fewest walls" (was "No walls")
 **Decision:** Renamed the walls slider's level-0 label from "No walls" to
 "Fewest walls" (everywhere: `WALL_LABELS[0]`, the markup default, and the
