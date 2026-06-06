@@ -25,6 +25,57 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-06 — [platform] Front public sites with Cloudflare (CDN/WAF/DDoS) + origin lockdown
+**Decision:** Put public sites — the zip game now, WordPress and future
+résumé-piece sites next — behind Cloudflare. **Free** tier to start; **Pro**
+($20/mo annual) per zone only where the managed WAF earns it (the busy, attacked
+site). Lock the origin so ports 80/443 accept only Cloudflare's IP ranges —
+enforced at the **OCI security list** (authoritative) with host `firewalld` as
+defense-in-depth. A documented outage **fallback** (grey-cloud bypass) covers a
+Cloudflare-edge failure like 2025-11-18.
+**Why:** Offloads DDoS / edge-WAF / bot / rate-limiting and hides the origin, so
+origin effort re-focuses on what Cloudflare can't do (pod hardening, egress
+containment, post-exploitation limits). Per-zone pricing keeps cost minimal; the
+bypass keeps the single-provider dependency survivable.
+**Refs:** platform/cloudflare/README.md, platform/cloudflare/FALLBACK.md.
+
+### 2026-06-06 — [platform] cert-manager → Let's Encrypt DNS-01 via Cloudflare
+**Decision:** Migrate certificate issuance from HTTP-01 (via Traefik on port 80)
+to **DNS-01** solved through the Cloudflare API — new ClusterIssuers
+`letsencrypt-dns01-staging` / `letsencrypt-dns01-prod`, with the API token as an
+out-of-band secret. Migrate each Ingress staging→prod with `cmctl renew`, never
+secret-deletion.
+**Why:** Locking the origin to Cloudflare IPs breaks HTTP-01 (Let's Encrypt
+can't reach port 80 directly). DNS-01 needs no inbound port, so the lockdown is
+clean; it also retires the port-80-redirect and rate-limit-by-deletion footguns
+for good, and allows wildcards if ever wanted.
+**Refs:** platform/cloudflare/cloudflare-dns01-issuer.yaml; refines the HTTP-01
+mechanism of 2026-05-31 [platform] "TLS live via cert-manager + Let's Encrypt".
+
+### 2026-06-06 — [platform] Origin keeps a browser-trusted LE cert, NOT a Cloudflare Origin CA cert
+**Decision:** With Cloudflare in front (SSL mode **Full (Strict)**), the origin
+continues to serve a publicly-trusted Let's Encrypt certificate (via DNS-01). Do
+**not** switch the origin to a free Cloudflare Origin CA certificate.
+**Why:** An Origin CA cert is trusted only by Cloudflare. During an outage bypass
+(grey-cloud → visitors hit the origin directly), a browser-trusted cert is
+essential or every visitor gets a TLS warning. The small convenience of Origin
+CA is not worth breaking the fallback — recorded explicitly to guard against a
+later "just use Origin CA" reversal.
+**Refs:** platform/cloudflare/FALLBACK.md, platform/cloudflare/README.md.
+
+### 2026-06-06 — [platform] WordPress runs on LEMP (Nginx + PHP-FPM), not LAMP
+**Decision:** Each WordPress site is a **two-container pod** — a
+`wordpress:*-fpm` (PHP-FPM) container + an `nginx:alpine` container sharing the
+html volume, FastCGI over `127.0.0.1:9000` — driven by shared Nginx-vhost and
+FPM-pool ConfigMaps. `pm = ondemand` with an explicit `pm.max_children` bounds
+both idle memory and per-site DB connections.
+**Why:** For many mostly-idle sites on 12 GB nodes, LEMP idles far cheaper than
+Apache+mod_php (which keeps a PHP interpreter resident per worker), and
+`pm.max_children` is the explicit dial that keeps the shared-MariaDB connection
+budget honest. Refines the 2026-05-31 [platform] "WordPress: pod-per-site, shared
+MariaDB" decision (which had assumed the single-container Apache image).
+**Refs:** wordpress/ (lemp-base.yaml, site-template.yaml, apply-site.sh, README.md).
+
 ### 2026-06-06 — [zip-game] "Really Wiggly" (`w=4`) fix: target decision density, not max turns
 **Decision:** Lowered the wiggly-end targets off their pathological ceiling
 (`WIGGLE_TARGET[4]` 0.75 → 0.66, `WIGGLE_BIAS[4]` 1.0 → 0.62; `w3` similarly
@@ -70,6 +121,51 @@ exactly 1, wall counts scale ~9.6→20.2 across levels 0→4. Difficulty targeti
 sees the walled board because the final solve runs after `addExtraWalls`.
 **Refs:** trace.html `WALL_FRAC`/`WALL_LABELS`/`addExtraWalls`, `generateCandidate`,
 `parseURL`/`updateURL` (`m`), walls slider wiring; IDEAS.md "Generation tuning".
+
+### 2026-06-05 — [platform] Use `cmctl renew`, not secret-deletion, for prod TLS flips
+**Decision:** The staging→prod cutover no longer deletes the trace-tls secret.
+Flip the issuer annotation, then `cmctl renew trace-tls -n trace` for a single
+controlled re-issue that keeps the old secret until the new cert is Ready.
+**Why:** Deleting the secret triggers re-issuance AND risks a second trigger
+(generation bump) racing it — two issuances against the 5-per-168h budget from
+one action, plus an untrusted-cert gap. Hit this 2026-06-05 (issuance #6 → 429
+while a valid prod cert already sat in trace-tls-2).
+**Refs:** DEPLOYMENT.md §5 (to update); supersedes the "delete secret" step there.
+
+### 2026-06-05 — [platform] Decouple the three zip domains into per-host TLS secrets
+**Decision (to do once clear of the rate limit):** Split the single 3-SAN cert
+into one tls entry + secretName per host, so each domain has its own
+5-per-168h budget and CT-log footprint.
+**Why:** Two lockouts now on the shared SAN set; any re-issue gambles all three
+domains against one combined budget. Per-host certs isolate that blast radius.
+**Refs:** trace-k8s.yaml (existing comment foreshadows this); STATUS.md §3.
+
+### 2026-06-05 — [platform] Shared MariaDB implemented; max_connections raised to 60 for the shared case
+**Decision:** Authored the shared MariaDB StatefulSet (Longhorn, root secret
+out-of-band, `healthcheck.sh` probes) with a tuning ConfigMap:
+`innodb_buffer_pool_size` 256M, small per-connection buffers, and
+`max_connections = 60` (container memory limit 768Mi).
+**Why:** Refines the 2026-05-31 [cross-cutting] tuning baseline (20–30) for a
+*shared* engine fronting 10–20 WP sites, where 30 risks "Too many connections".
+The RAM-capping intent is preserved; keep per-site `pm.max_children` modest to
+stay under it.
+**Note:** Manifests authored this session; **not yet deployed** on the cluster.
+**Refs:** platform/mariadb/mariadb.yaml; refines 2026-05-31 [cross-cutting]
+"Postgres/MariaDB tuning baseline".
+
+### 2026-06-05 — [platform] Backups implemented (manifests) — logical dumps + Longhorn target
+**Decision:** Authored the backups stack: a nightly CronJob doing `pg_dump` +
+per-DB `mariadb-dump` → Oracle Object Storage (rclone; tools-only image; script
+shipped via ConfigMap), plus a Longhorn backup target and a restore helper.
+Backups-first: protects Postgres immediately and picks up MariaDB automatically
+once its secret exists.
+**Why:** Implements the 2026-05-31 backups decision — the highest-priority gap
+(corruption / bad migration / accidental delete, none of which Longhorn
+replication covers). Per-DB MariaDB dumps restore per-site.
+**Note:** Manifests authored this session; **not yet deployed or restore-tested**.
+The "one tested restore" requirement is still outstanding.
+**Refs:** platform/backups/; advances 2026-05-31 [cross-cutting] "Backups: logical
+dumps + Longhorn target → Object Storage".
 
 ### 2026-06-03 — [zip-game] GHCR migration completed for the trace image
 **Decision:** The Trace image is now published to `ghcr.io/fireappleblack/trace`
@@ -219,21 +315,3 @@ zip game's Postgres.
 12 GB nodes than one engine per site. Capacity ~10–20 low-traffic sites
 alongside the zip game and mail.
 **Refs:** to land under `platform/mariadb/` and `wordpress/`.
-
-### 2026-06-05 — [platform] Use `cmctl renew`, not secret-deletion, for prod TLS flips
-**Decision:** The staging→prod cutover no longer deletes the trace-tls secret.
-Flip the issuer annotation, then `cmctl renew trace-tls -n trace` for a single
-controlled re-issue that keeps the old secret until the new cert is Ready.
-**Why:** Deleting the secret triggers re-issuance AND risks a second trigger
-(generation bump) racing it — two issuances against the 5-per-168h budget from
-one action, plus an untrusted-cert gap. Hit this 2026-06-05 (issuance #6 → 429
-while a valid prod cert already sat in trace-tls-2).
-**Refs:** DEPLOYMENT.md §5 (to update); supersedes the "delete secret" step there.
-
-### 2026-06-05 — [platform] Decouple the three zip domains into per-host TLS secrets
-**Decision (to do once clear of the rate limit):** Split the single 3-SAN cert
-into one tls entry + secretName per host, so each domain has its own
-5-per-168h budget and CT-log footprint.
-**Why:** Two lockouts now on the shared SAN set; any re-issue gambles all three
-domains against one combined budget. Per-host certs isolate that blast radius.
-**Refs:** trace-k8s.yaml (existing comment foreshadows this); STATUS.md §3.

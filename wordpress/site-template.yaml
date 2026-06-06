@@ -1,0 +1,156 @@
+# ─────────────────────────────────────────────────────────────────────────
+# WordPress LEMP — per-site template (Nginx + PHP-FPM, shared MariaDB)
+# ─────────────────────────────────────────────────────────────────────────
+# Rendered + applied by apply-site.sh (which also applies lemp-base.yaml,
+# provisions the site's DB+user, and creates the DB-password Secret). Not
+# applied directly.
+#
+#   ./wordpress/apply-site.sh <site-slug> <hostname> [issuer] [fpm-image]
+#   e.g. ./wordpress/apply-site.sh blog blog.derangedimagination.com
+#
+# Tokens: __SITE__ __HOST__ __DB_NAME__ __DB_USER__ __WP_IMAGE__ __ISSUER__
+#
+# Each site = ONE pod with TWO containers sharing the html PVC:
+#   • wordpress (php-fpm) — runs PHP only; its entrypoint populates
+#     /var/www/html and writes wp-config.php from the DB env on first start.
+#   • nginx — serves static files and reverse-proxies *.php to FPM over
+#     127.0.0.1:9000 (same pod, loopback).
+# The pod is Ready only when BOTH nginx (/healthz) and FPM (:9000) are up, so
+# the Service never routes to a half-started pod (no cold-start 502s).
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wp-__SITE__-html
+  namespace: wordpress
+  labels: { app: wordpress, site: __SITE__ }
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: longhorn          # explicit — never the cluster default
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wp-__SITE__
+  namespace: wordpress
+  labels: { app: wordpress, site: __SITE__ }
+spec:
+  replicas: 1                         # RWO volume + wp-config salts on disk
+  strategy:
+    type: Recreate                    # never two pods on one RWO volume
+  selector:
+    matchLabels: { app: wordpress, site: __SITE__ }
+  template:
+    metadata:
+      labels: { app: wordpress, site: __SITE__ }
+    spec:
+      # php-fpm image runs as www-data (uid 33). fsGroup makes the Longhorn
+      # volume writable by FPM; Nginx reads the same files via standard
+      # world-read bits (WordPress writes 644/755).
+      securityContext:
+        fsGroup: 33
+      containers:
+        # ── PHP-FPM (the application) ──
+        - name: wordpress
+          image: __WP_IMAGE__         # a *-fpm WordPress image (NOT -apache)
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mariadb.mariadb.svc.cluster.local"
+            - name: WORDPRESS_DB_NAME
+              value: "__DB_NAME__"
+            - name: WORDPRESS_DB_USER
+              value: "__DB_USER__"
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: wp-__SITE__-db, key: WORDPRESS_DB_PASSWORD }
+          ports:
+            - name: fpm
+              containerPort: 9000
+          readinessProbe:             # gates pod Ready on FPM accepting connections
+            tcpSocket: { port: fpm }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: fpm }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - { name: html, mountPath: /var/www/html }
+            - { name: fpm-cfg, mountPath: /usr/local/etc/php-fpm.d/zz-pool.conf, subPath: zz-pool.conf, readOnly: true }
+            - { name: fpm-cfg, mountPath: /usr/local/etc/php/conf.d/uploads.ini, subPath: uploads.ini, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            # ondemand + pm.max_children=5; typical WP request ~50-90MB. If a
+            # site is memory-heavy, lower max_children (base) rather than only
+            # raising this. See README's memory/connection math.
+            limits: { cpu: 500m, memory: 384Mi }
+        # ── Nginx (web server + static files) ──
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - { name: html, mountPath: /var/www/html, readOnly: true }
+            - { name: nginx-cfg, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+      volumes:
+        - name: html
+          persistentVolumeClaim:
+            claimName: wp-__SITE__-html
+        - name: nginx-cfg
+          configMap: { name: wp-nginx }
+        - name: fpm-cfg
+          configMap: { name: wp-fpm }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wp-__SITE__
+  namespace: wordpress
+  labels: { app: wordpress, site: __SITE__ }
+spec:
+  type: ClusterIP
+  selector: { app: wordpress, site: __SITE__ }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http               # → the nginx container
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wp-__SITE__
+  namespace: wordpress
+  labels: { app: wordpress, site: __SITE__ }
+  annotations:
+    cert-manager.io/cluster-issuer: __ISSUER__   # letsencrypt-staging → -prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [__HOST__]
+      secretName: wp-__SITE__-tls
+  rules:
+    - host: __HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wp-__SITE__
+                port:
+                  number: 80

@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────────
+# WordPress LEMP — shared base (one set of configs for ALL sites)
+# ─────────────────────────────────────────────────────────────────────────
+# Applied once (apply-site.sh applies it idempotently before each site). Holds
+# the two configs that are identical across sites:
+#   • wp-nginx  — the WordPress Nginx vhost (FastCGI → php-fpm on 127.0.0.1:9000)
+#   • wp-fpm    — the PHP-FPM pool overrides + PHP upload/memory ini
+#
+# Why shared, not per-site: the Nginx vhost is host-agnostic (the Ingress already
+# routes by hostname; Nginx just serves one docroot), and the pool tuning is the
+# same low-traffic profile everywhere. Per-site overrides can come later by
+# pointing a site at a different ConfigMap — not needed yet.
+#
+# Edit a value here, `kubectl apply -f wordpress/lemp-base.yaml`, then restart the
+# affected site(s): `kubectl -n wordpress rollout restart deploy -l app=wordpress`.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wordpress
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wp-nginx
+  namespace: wordpress
+data:
+  default.conf: |
+    server {
+        listen 80 default_server;
+        server_name _;
+        root /var/www/html;
+        index index.php;
+
+        # Match PHP's upload limits below so large media uploads aren't cut off
+        # at the web server before they reach PHP.
+        client_max_body_size 64m;
+
+        # Cheap liveness endpoint served by Nginx itself (no PHP, no DB), so a
+        # transient DB blip can't restart-loop the pod.
+        location = /healthz { return 200 "ok\n"; add_header Content-Type text/plain; }
+
+        # WordPress pretty-permalinks front controller.
+        location / {
+            try_files $uri $uri/ /index.php?$args;
+        }
+
+        # Static assets: served directly by Nginx, never touching PHP — this is
+        # the bulk of requests and the main reason LEMP idles cheaply.
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff2?|ttf)$ {
+            expires 7d;
+            access_log off;
+            try_files $uri =404;
+        }
+
+        location ~ \.php$ {
+            # Never hand a non-existent .php to FPM (blocks script-injection paths).
+            try_files $uri =404;
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param PATH_INFO $fastcgi_path_info;
+            fastcgi_pass 127.0.0.1:9000;          # FPM in the same pod (loopback)
+            fastcgi_index index.php;
+            fastcgi_read_timeout 120s;
+            fastcgi_buffers 16 16k;
+            fastcgi_buffer_size 32k;
+        }
+
+        # Don't serve dotfiles (.htaccess, .git, etc.).
+        location ~ /\. { deny all; }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wp-fpm
+  namespace: wordpress
+data:
+  # Loaded LAST (zz-) so its [www] directives win over the image's stock
+  # www.conf / zz-docker.conf without redeclaring listen/user.
+  zz-pool.conf: |
+    [www]
+    ; ondemand = workers spawn on a request and exit after the idle timeout, so
+    ; a mostly-idle site costs ~nothing in PHP RAM (just the FPM master). This is
+    ; the LEMP-at-idle win versus Apache's resident mod_php workers.
+    pm = ondemand
+    ; THE per-site dial: caps concurrent PHP workers AND therefore the DB
+    ; connections this site can open. Keep (sites × max_children) under MariaDB's
+    ; max_connections (60). 5 is a sane low-traffic default.
+    pm.max_children = 5
+    pm.process_idle_timeout = 10s
+    pm.max_requests = 500
+    catch_workers_output = yes
+    decorate_workers_output = no
+  uploads.ini: |
+    ; PHP defaults cap uploads at 2M — too small for WordPress media. Raise to
+    ; match Nginx's client_max_body_size. memory_limit is PER REQUEST; typical WP
+    ; requests use far less, but a runaway request can reach this, so size the
+    ; container memory limit and pm.max_children together (see README).
+    upload_max_filesize = 64M
+    post_max_size = 64M
+    memory_limit = 128M
+    max_execution_time = 120

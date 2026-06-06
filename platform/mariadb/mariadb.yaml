@@ -1,0 +1,169 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Shared MariaDB — one engine, a DB+user per tenant (WordPress sites)
+# ─────────────────────────────────────────────────────────────────────────
+# Platform-owned (RESPONSIBILITY.md): this is shared infrastructure, distinct
+# from the zip game's DEDICATED Postgres. WordPress needs MySQL/MariaDB, not
+# Postgres; one shared engine is far kinder to 12 GB nodes than one engine per
+# site (DECISIONS.md 2026-05-31 [platform] "WordPress: pod-per-site, shared
+# MariaDB").
+#
+# Apply via the helper (creates namespace + root secret out-of-band, then this):
+#   cp platform/mariadb/_secrets_env.example platform/mariadb/.secrets.env
+#   # edit .secrets.env — set MARIADB_ROOT_PASSWORD
+#   ./platform/mariadb/apply-mariadb.sh
+#
+# Per-site databases/users are NOT created here — each WordPress site provisions
+# its own least-privilege DB+user against this engine (see wordpress/apply-site.sh).
+#
+# The root credentials Secret (`mariadb-root`) is created OUT-OF-BAND and is
+# never committed — same pattern as trace-db.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb
+---
+# ── Tuning (DECISIONS.md 2026-05-31 [cross-cutting] "Postgres/MariaDB tuning
+#    baseline"), translated to MariaDB and adapted for a SHARED instance.
+#
+#    The baseline (shared_buffers 32–64M, work_mem 4M, max_connections 20–30)
+#    was written generically; the Postgres knobs don't map 1:1 to MariaDB, and
+#    a *shared* engine fronting many WP sites needs more connection headroom
+#    than a single dedicated DB. Deviations from the baseline are deliberate
+#    and logged in DECISIONS.md (see the new entry). The intent — cap the
+#    largest RAM consumers and keep the backend-process count bounded — is
+#    preserved.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-tuning
+  namespace: mariadb
+data:
+  zz-tuning.cnf: |
+    [mariadbd]
+    # ── memory: the buffer pool is the big RAM consumer (≈ Postgres
+    #    shared_buffers). 256M comfortably caches many small WP DBs while
+    #    staying well within the container limit below. This is the one knob
+    #    to raise first if MariaDB is busy AND the node has spare RAM.
+    innodb_buffer_pool_size      = 256M
+    innodb_log_file_size         = 64M
+    innodb_flush_method          = O_DIRECT
+    innodb_flush_log_at_trx_commit = 1
+
+    # ── connections: baseline said 20–30 for a dedicated DB. A shared engine
+    #    behind ~10–20 low-traffic WP sites would hit "Too many connections"
+    #    at 30, so cap at 60 and keep each site's php-fpm/worker count modest
+    #    (see the WordPress template). Each idle connection is cheap; the
+    #    per-connection BUFFERS below are what actually cost RAM, so keep them
+    #    small.
+    max_connections              = 60
+    sort_buffer_size             = 1M
+    join_buffer_size             = 1M
+    read_buffer_size             = 256K
+    read_rnd_buffer_size         = 512K
+    tmp_table_size               = 16M
+    max_heap_table_size          = 16M
+
+    # ── WordPress hygiene ──
+    max_allowed_packet           = 64M
+    skip-name-resolve                          # auth by IP; no DNS round-trips
+    character-set-server         = utf8mb4
+    collation-server             = utf8mb4_unicode_ci
+
+    [client]
+    default-character-set        = utf8mb4
+---
+# Headless Service → stable DNS: mariadb.mariadb.svc.cluster.local:3306
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: mariadb
+  labels:
+    app: mariadb
+spec:
+  clusterIP: None
+  selector:
+    app: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  namespace: mariadb
+  labels:
+    app: mariadb
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      # The official mariadb image runs as the mysql user (uid 999). fsGroup
+      # makes the Longhorn volume writable by that user.
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mariadb
+          image: mariadb:11.4         # current LTS; multi-arch (arm64 OK)
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mariadb-root      # provides MARIADB_ROOT_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mariadb          # keep data off the volume root (lost+found)
+            - name: tuning
+              mountPath: /etc/mysql/conf.d/zz-tuning.cnf
+              subPath: zz-tuning.cnf
+              readOnly: true
+          # The image ships healthcheck.sh, which reads the root password from
+          # the standard env var — no password on the command line / ps list.
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            # Limit ≈ buffer pool (256M) + per-connection buffers + overhead.
+            # Bounds MariaDB's footprint so mail + WP + the zip game coexist on
+            # 12 GB nodes.
+            limits:
+              cpu: "1"
+              memory: 768Mi
+      volumes:
+        - name: tuning
+          configMap:
+            name: mariadb-tuning
+  # EXPLICIT longhorn storageClassName — never rely on the cluster default
+  # (k3s re-marks local-path default on upgrade; a local-path PVC would pin the
+  # DB to one node and lose node-loss resilience). See DEPLOYMENT.md §7.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 5Gi

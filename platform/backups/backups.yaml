@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Cluster logical backups — nightly dumps → Oracle Object Storage
+# ─────────────────────────────────────────────────────────────────────────
+# Platform-owned (RESPONSIBILITY.md): backups are cross-cutting, so they live
+# here under platform/ in their OWN namespace rather than inside the trace
+# namespace — keeps the app/platform ownership boundary clean.
+#
+# Apply via the helper (it creates the namespace, the secrets out-of-band, the
+# script ConfigMap, copies the GHCR pull secret, then applies this file):
+#
+#     cp platform/backups/_secrets_env.example platform/backups/.secrets.env
+#     # edit .secrets.env with your OCI Object Storage S3 keys + endpoint
+#     ./platform/backups/apply-backups.sh
+#
+# The two Secrets referenced below are created out-of-band and are NEVER in
+# git (same pattern as trace-db):
+#   • backup-object-store  — OCI S3 access key / secret key / endpoint / region
+#   • backup-db-passwords  — PGPASSWORD (always), MYSQL_PWD (once MariaDB lands)
+# The non-secret connection params (host/port/user/db) are plain env here.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-backups
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: platform-backups
+  labels:
+    app: db-backup
+spec:
+  # 02:07 UTC nightly. Odd minute to avoid the top-of-hour stampede.
+  schedule: "7 2 * * *"
+  # Never run two backups at once; if the cluster was down at trigger time,
+  # don't fire a late catch-up storm.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # Don't retry forever on a broken night — surface the failure instead.
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: db-backup
+        spec:
+          restartPolicy: Never
+          # Private GHCR image — apply-backups.sh copies `ghcr-pull` into this
+          # namespace. (Delete this block if you make the package public.)
+          imagePullSecrets:
+            - name: ghcr-pull
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: backup
+              image: ghcr.io/fireappleblack/cluster-backup:v0.1.0
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/scripts/backup.sh"]
+              env:
+                # ── retention ──
+                - name: RETENTION_DAYS
+                  value: "30"
+                # ── Object Storage bucket + rclone S3 remote 'oci' (via env) ──
+                # OS_* and the keys come from the backup-object-store Secret.
+                - name: OS_BUCKET
+                  valueFrom:
+                    secretKeyRef: { name: backup-object-store, key: OS_BUCKET }
+                - name: RCLONE_CONFIG_OCI_TYPE
+                  value: "s3"
+                - name: RCLONE_CONFIG_OCI_PROVIDER
+                  value: "Other"            # OCI S3-compat: 'Other', not 'AWS'
+                - name: RCLONE_CONFIG_OCI_ENV_AUTH
+                  value: "false"
+                - name: RCLONE_CONFIG_OCI_ACL
+                  value: "private"
+                - name: RCLONE_CONFIG_OCI_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef: { name: backup-object-store, key: OS_ACCESS_KEY_ID }
+                - name: RCLONE_CONFIG_OCI_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef: { name: backup-object-store, key: OS_SECRET_ACCESS_KEY }
+                - name: RCLONE_CONFIG_OCI_ENDPOINT
+                  valueFrom:
+                    secretKeyRef: { name: backup-object-store, key: OS_ENDPOINT }
+                - name: RCLONE_CONFIG_OCI_REGION
+                  valueFrom:
+                    secretKeyRef: { name: backup-object-store, key: OS_REGION }
+                # ── Postgres (host/port/user/db plain; password from Secret) ──
+                # FQDN because this Job is in a DIFFERENT namespace from the DB.
+                - name: PGHOST
+                  value: "trace-postgres.trace.svc.cluster.local"
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: "trace"
+                - name: PGDATABASE
+                  value: "trace"
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: backup-db-passwords, key: PGPASSWORD }
+                # ── MariaDB (password optional — absent until MariaDB lands) ──
+                - name: MYSQL_HOST
+                  value: "mariadb.mariadb.svc.cluster.local"
+                - name: MYSQL_USER
+                  value: "root"
+                - name: MYSQL_PWD
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-db-passwords
+                      key: MYSQL_PWD
+                      optional: true        # tolerate absence pre-MariaDB
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+          volumes:
+            - name: script
+              configMap:
+                name: backup-script
+                defaultMode: 0555

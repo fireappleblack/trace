@@ -8,11 +8,12 @@
 > For *who owns which files* across the parallel workstreams, see
 > **`RESPONSIBILITY.md`**.
 >
-> **Last updated:** 2026-06-03
+> **Last updated:** 2026-06-05
 
 ---
 
 ## Quick command sequence
+
 
 The whole deploy, top to bottom — the scannable path. Each line carries a
 one-clause effect and a pointer to the section that explains it in full; the
@@ -32,7 +33,7 @@ detail lives there, this is the executable summary.
 - `dig +short zip.hsabren.co.uk zip.derangedimagination.com zip.saidtheape.com` — confirm all three SANs resolve before issuing (§5)
 - `kubectl -n trace get certificate,order,challenge` — watch staging issuance reach `READY=True` (§5)
 - `kubectl -n trace annotate ingress trace cert-manager.io/cluster-issuer=letsencrypt-prod --overwrite` — flip to the production issuer (§5)
-- `kubectl -n trace delete secret trace-tls` — force a clean re-issue against the real CA (§5)
+- `cmctl renew trace-tls -n trace` — request **one** controlled prod re-issue; keeps the old secret until the new cert is Ready (§5). **Do NOT `delete secret trace-tls`** — see §5/§7
 - `kubectl -n trace get certificate -w` — watch the trusted prod cert reach `READY=True` (§5)
 - `echo | openssl s_client -connect zip.hsabren.co.uk:443 -servername zip.hsabren.co.uk 2>/dev/null | openssl x509 -noout -issuer` — verify the served issuer is LE production (§5)
 
@@ -171,10 +172,13 @@ dig +short zip.hsabren.co.uk zip.derangedimagination.com zip.saidtheape.com
 # Watch staging issuance reach READY=True (browser will warn — that IS success):
 kubectl -n trace get certificate,order,challenge
 
-# Flip to production:
+# Flip to production, then request ONE controlled re-issue.
+# DO NOT delete the trace-tls secret to force it (see §7) — that can
+# double-trigger and burn two of the 5/168h slots, and serves an untrusted
+# cert in the gap. cmctl renew keeps the old secret until the new one is Ready.
 kubectl -n trace annotate ingress trace \
   cert-manager.io/cluster-issuer=letsencrypt-prod --overwrite
-kubectl -n trace delete secret trace-tls               # force a clean re-issue
+cmctl renew trace-tls -n trace                         # one controlled re-issue
 kubectl -n trace get certificate -w                    # READY=True, now trusted
 ```
 
@@ -185,8 +189,14 @@ kubectl -n trace get certificate -w                    # READY=True, now trusted
   on staging is the expected success signal (untrusted test CA).
 - **`annotate ... letsencrypt-prod`** — flips the Ingress to the production
   issuer, once staging has proven the path.
-- **`delete secret trace-tls`** — forces a clean re-issue against the production
-  CA rather than reusing staging material.
+- **`cmctl renew trace-tls`** — requests a single, controlled re-issue against
+  the production CA, keeping the existing secret in place until the new cert is
+  Ready (no untrusted-cert gap, no stray second trigger). `cmctl` is the
+  cert-manager CLI — install once from
+  https://cert-manager.io/docs/reference/cmctl/ . **Do NOT `delete secret
+  trace-tls` to force issuance** (the old runbook step): on the prod issuer that
+  both triggers a re-issue *and* risks a generation-bump re-trigger racing it,
+  spending two slots from one action — exactly the 2026-06-05 lockout (§7).
 - **`get certificate -w`** — watches the trusted prod cert reach `READY=True`.
 
 Verify the trusted cert (independent of browser cache):
@@ -222,11 +232,25 @@ echo | openssl s_client -connect zip.hsabren.co.uk:443 \
   after any k3s upgrade.
 - **Staging before prod, always.** Let's Encrypt production has tight rate
   limits — notably the **duplicate-certificate** limit: 5 certs per *exact* SAN
-  set per 168h. Each `delete secret trace-tls` on the prod issuer triggers a
-  fresh issuance and burns one; repeated recreate cycles exhaust it (hit
-  2026-06-03 — locked out until the window cleared). Iterate on **staging**;
-  touch prod **once**. A staging-cert browser warning is the success signal, not
-  a fault.
+  set per 168h. Iterate on **staging**; touch prod **once**. A staging-cert
+  browser warning is the success signal, not a fault.
+- **Never force a prod re-issue by deleting `trace-tls` — use `cmctl renew`.**
+  On the prod issuer, deleting the secret triggers a fresh issuance (burns one
+  slot) *and* a near-simultaneous generation bump can re-trigger a second order
+  that races it — so one manual action spends **two** of the five slots, and
+  the site serves Traefik's default (untrusted) cert in the gap. The
+  three `zip.*` names share **one** exact-identifier set, so the budget is
+  shared across all three: a double-trigger can lock out every domain at once.
+  This is the **second** lockout from this pattern (2026-06-03 recreate cycles;
+  2026-06-05 a double-trigger hit issuance #6 → 429 while a valid prod cert
+  already sat in `trace-tls-2`). The recovery is to **wait** — the 429 error
+  carries an exact `retry after` timestamp, and cert-manager's own backoff
+  re-orders and populates `trace-tls` automatically once clear. A rejected
+  (429) order does not burn a slot; only a *successful* issuance does. Going
+  forward: flip the annotation, then `cmctl renew trace-tls -n trace`, and don't
+  touch the secret. (Structural fix under consideration: decouple the three
+  domains into per-host `tls:` secrets so each has its own 5/168h budget — see
+  DECISIONS.md 2026-06-05.)
 - **Add the HTTP->HTTPS redirect only *after* the prod cert is stable.** A
   global redirect breaks the HTTP-01 challenge (which serves on plain port 80).
   *(Still outstanding for trace.)*
