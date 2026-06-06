@@ -48,6 +48,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 echo ">> project root: $ROOT"
 
+# Stamp the build version into the client so a live page reports exactly which
+# image it came from (troubleshooting / error correlation). Idempotent: it
+# rewrites the *value* of TRACE_VERSION each run (re-stampable, never rots), and
+# the committed trace.html ends up reflecting the last-deployed tag. sed -i.bak
+# is portable across BSD (macOS) and GNU sed. The client treats this string as
+# untrusted; it's a label, not a security boundary.
+CLIENT="trace.html"
+if grep -q "const TRACE_VERSION = '" "$CLIENT"; then
+  sed -i.bak -E "s/(const TRACE_VERSION = ')[^']*(';)/\1${VER}\2/" "$CLIENT"
+  rm -f "$CLIENT.bak"
+  echo ">> stamped $CLIENT with TRACE_VERSION='$VER'"
+else
+  echo ">> WARNING: TRACE_VERSION constant not found in $CLIENT — client will report 'dev'." >&2
+fi
+
 echo ">> building $IMAGE:$VER (arm64 — matches the Ampere nodes)"
 podman build -f trace-server/Containerfile -t "$IMAGE:$VER" .
 

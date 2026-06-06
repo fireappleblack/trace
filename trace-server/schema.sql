@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     is_public       INTEGER NOT NULL DEFAULT 0,
     env_verified    INTEGER NOT NULL DEFAULT 0,
     tos_version     INTEGER NOT NULL DEFAULT 1,
+    client_version  TEXT,                        -- build tag of the client that logged it; untrusted, logged only
 
     -- Environmental context (all optional)
     latitude            REAL,

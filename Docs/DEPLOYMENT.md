@@ -284,3 +284,20 @@ storage class, or cert flow change — including the Quick command sequence at t
 top, which must stay in step with §2–§6. This is the canonical process — older
 instructions in READMEs and scripts defer to it. Ownership of files is in
 `RESPONSIBILITY.md`; state and risk in `STATUS.md`; rationale in `DECISIONS.md`.*
+
+**Version stamping (automatic).** `deploy.sh <version>` rewrites the
+`TRACE_VERSION` constant in `trace.html` to `<version>` before the build, so the
+served client reports exactly which image it came from (footer tag,
+`window.TRACE_VERSION`, and the `client_version` column on every logged attempt).
+The rewrite is idempotent — it edits the *value*, so it never rots and is safe to
+re-run — and it leaves the committed `trace.html` showing the last-deployed tag.
+A live client reporting `dev` means an **unstamped** build was served (someone
+built without `deploy.sh`, or the constant got renamed and the stamp's
+"TRACE_VERSION not found" warning was missed). `client_version` is stored for
+troubleshooting only and is never trusted by the server (bounded to 64 chars,
+never read back into any logic), so no deploy step depends on it.
+
+> If you ever build by hand instead of via `deploy.sh`, stamp it yourself first:
+> ```
+> sed -i.bak -E "s/(const TRACE_VERSION = ')[^']*(';)/\1<version>\2/" trace.html && rm -f trace.html.bak
+> ```

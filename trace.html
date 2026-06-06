@@ -374,6 +374,15 @@
     background: var(--rule);
     margin: 0 auto 12px;
   }
+  .footer .version-tag {
+    display: block;
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    opacity: 0.55;
+  }
 
   /* ── Toast (solved) ───────────────────────────────── */
   .toast {
@@ -1373,6 +1382,7 @@
   <footer class="footer">
     <span class="rule"></span>
     A Hamiltonian path puzzle. Press &amp; drag from the red dot.
+    <span class="version-tag" id="versionTag"></span>
   </footer>
 </div>
 
@@ -1629,6 +1639,19 @@
 
 <script>
 'use strict';
+
+// ─── Build version ──────────────────────────────────
+// Stamped in place by deploy.sh at build time (an idempotent regex on the value
+// below), so it always matches the deployed image tag. 'dev' means an unstamped
+// build run straight from source — which is itself useful triage signal: a live
+// client should never report 'dev'.
+//
+// Purpose is troubleshooting/error correlation only. It is exposed for the
+// console and attached to any client-side error report, but it is
+// CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
+// treat hiding it as a security control (the whole file is view-source anyway).
+const TRACE_VERSION = 'dev';
+try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
 let SIZE = 6;
@@ -2737,7 +2760,8 @@ const Attempts = (function() {
       undos: counters.undos,
       clears: counters.clears,
       cheated: cheatUsed ? 1 : 0,
-      solved: 1
+      solved: 1,
+      client_version: TRACE_VERSION   // provenance only — logged, never trusted
     };
   }
 
@@ -2806,6 +2830,7 @@ const DB = (function() {
       is_public INTEGER NOT NULL DEFAULT 0,
       env_verified INTEGER NOT NULL DEFAULT 0,
       tos_version INTEGER NOT NULL DEFAULT 1,
+      client_version TEXT,              -- build tag of the client that logged it (untrusted)
       -- Environmental context, fetched at save time
       latitude REAL,
       longitude REAL,
@@ -2849,6 +2874,7 @@ const DB = (function() {
     "ALTER TABLE attempts ADD COLUMN env_verified INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE attempts ADD COLUMN tos_version INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE attempts ADD COLUMN cheated INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE attempts ADD COLUMN client_version TEXT",
   ];
   function runMigrations() {
     for (const stmt of MIGRATIONS_V2) {
@@ -4302,6 +4328,8 @@ function loadPuzzleByParams(seed, size, difficulty, w) {
 // ═══════════════════════════════════════════════════════════════════════════
 async function boot() {
   parseURL();
+  const vt = document.getElementById('versionTag');
+  if (vt) vt.textContent = TRACE_VERSION === 'dev' ? 'dev build' : TRACE_VERSION;
   if (!SEED) SEED = randomSeedString();
   Profile.init();
   await Profile.pollServerTos();

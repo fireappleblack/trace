@@ -50,7 +50,7 @@ ALLOWED_ATTEMPT_COLUMNS = {
     'user_id', 'seed', 'size', 'difficulty',
     'started_at', 'completed_at', 'duration_ms',
     'moves', 'backtracks', 'undos', 'clears', 'solved', 'cheated',
-    'is_public', 'env_verified', 'tos_version',
+    'is_public', 'env_verified', 'tos_version', 'client_version',
     'latitude', 'longitude', 'location_label',
     'local_time_iso', 'sunrise_iso', 'sunset_iso',
     'weather_temp_c', 'weather_condition', 'weather_wind_kmh',
@@ -388,6 +388,7 @@ ATTEMPTS_V2_COLUMNS = [
     ('env_verified', 'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
     ('tos_version',  'INTEGER NOT NULL DEFAULT 1', 'INTEGER NOT NULL DEFAULT 1'),
     ('cheated',      'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+    ('client_version', 'TEXT', 'TEXT'),
 ]
 
 def init_schema(conn, backend, schema_path=None):
@@ -696,6 +697,13 @@ def insert_attempt(conn, backend, placeholder, data):
         raise ValueError(f"Missing required fields: {sorted(missing)}")
 
     clean = {k: v for k, v in data.items() if k in ALLOWED_ATTEMPT_COLUMNS}
+
+    # client_version is untrusted free text supplied by the client — stored for
+    # troubleshooting/error correlation only, never read back into any logic.
+    # Coerce to a bounded string so a malformed or hostile client can't write an
+    # oversized blob. (The parameterised INSERT already neutralises injection.)
+    if clean.get('client_version') is not None:
+        clean['client_version'] = str(clean['client_version'])[:64]
 
     # If is_public wasn't sent, default from the user's profile.
     if 'is_public' not in clean:
