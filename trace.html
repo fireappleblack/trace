@@ -1333,6 +1333,13 @@
     <span class="wiggle-bar-val" id="mainWiggleVal">Balanced</span>
   </div>
 
+  <div class="wiggle-bar">
+    <span class="wiggle-bar-label">Walls</span>
+    <input type="range" id="mainWalls" class="wiggle-range" min="0" max="4" step="1" value="0"
+           aria-label="Wall density, from no walls to a maze" />
+    <span class="wiggle-bar-val" id="mainWallsVal">No walls</span>
+  </div>
+
   <div class="settings">
     <div class="setting">
       <label for="sizeSel">Grid</label>
@@ -1823,10 +1830,23 @@ function generateHamiltonian() {
 // before. The last-used level is also remembered in localStorage as the
 // default for fresh sessions.
 const WIGGLE_DEFAULT = 2;                          // midpoint = natural, no bias
-const WIGGLE_TARGET = { 0: 0.30, 1: 0.42, 3: 0.62, 4: 0.75 };
-const WIGGLE_BIAS   = { 0: -1.0, 1: -0.6, 3: 0.6, 4: 1.0 };
+// Targets/biases for the wiggly end were lowered off a pathological ceiling.
+// The old w=4 (target 0.75, bias 1.0) turned at nearly every opportunity,
+// which paradoxically made it EASIER: it minimised the cells where the path
+// goes straight while a turn is available — the only points where a blind
+// "always turn" strategy diverges from the solution — so always-turning
+// tracked the answer. We now top out lower and select for decision density
+// (see DECISION_FLOOR_FRAC + the scorer in generateForDifficulty).
+const WIGGLE_TARGET = { 0: 0.30, 1: 0.42, 3: 0.56, 4: 0.66 };
+const WIGGLE_BIAS   = { 0: -1.0, 1: -0.6, 3: 0.45, 4: 0.62 };
 const WIGGLE_LABELS = ['Almost straight', 'Fairly straight', 'Balanced', 'Fairly wiggly', 'Really wiggly'];
-let genWiggle = null;                              // {target,bias} during gen, or null
+// Minimum "straight-against-turn" decision points at the wiggly end, as a
+// fraction of interior cells. Below this floor a candidate is penalised, which
+// lifts the low tail (the trivially always-turn-solvable puzzles) without
+// flattening the wiggly look. w4 looks wigglier (higher turn target) so it
+// carries a lower floor than w3 — still far above the old broken baseline.
+const DECISION_FLOOR_FRAC = { 3: 0.36, 4: 0.30 };
+let genWiggle = null;                              // {target,bias,floorFrac} during gen, or null
 
 function getWigglePref() {
   const v = parseInt(localStorage.getItem('trace.wiggle'), 10);
@@ -1835,9 +1855,62 @@ function getWigglePref() {
 function setWigglePref(v) { try { localStorage.setItem('trace.wiggle', String(v)); } catch (e) {} }
 let WIGGLE = getWigglePref();                      // current puzzle's level (like SIZE)
 
+// ─── Walls ──────────────────────────────────────────
+// A second, independent difficulty lever: extra walls layered on top of the
+// ones uniqueness enforcement already places. Like WIGGLE it is a first-class
+// puzzle parameter — level 0..4, travels in the URL as `m` (maze), reflected by
+// its own on-board slider — so a puzzle is reproducible from
+// (seed, size, difficulty, w, m). Level 0 = no extra walls, so a missing `m`
+// (the daily, any old link) generates exactly as before.
+//
+// Walls are only ever added on edges the canonical solution does NOT use, so
+// the solution stays valid; and since adding a wall can only forbid edges
+// (never create a new route), uniqueness is preserved. WALL_FRAC is the
+// fraction of available non-solution edges to wall at each level.
+const WALLS_DEFAULT = 0;                            // no extra walls = today's behaviour
+const WALL_FRAC   = { 0: 0, 1: 0.18, 2: 0.34, 3: 0.52, 4: 0.72 };
+const WALL_LABELS = ['No walls', 'A few walls', 'Some walls', 'Many walls', 'A-maze-ing'];
+
+function getWallsPref() {
+  const v = parseInt(localStorage.getItem('trace.walls'), 10);
+  return Number.isInteger(v) && v >= 0 && v <= 4 ? v : WALLS_DEFAULT;
+}
+function setWallsPref(v) { try { localStorage.setItem('trace.walls', String(v)); } catch (e) {} }
+let WALLS = getWallsPref();                         // current puzzle's wall level
+
+function syncWallsUI() {
+  const s = document.getElementById('mainWalls');
+  if (s) s.value = String(WALLS);
+  const v = document.getElementById('mainWallsVal');
+  if (v) v.textContent = WALL_LABELS[WALLS] || 'No walls';
+}
+
+// Layer extra walls onto the global `walls` set for the current WALLS level.
+// Operates only on internal edges not used by the canonical solution and not
+// already walled, so the solution remains valid and unique. Deterministic via
+// the seeded rng (so the puzzle round-trips from its URL).
+function addExtraWalls(sol) {
+  const frac = WALL_FRAC[WALLS] || 0;
+  if (frac <= 0) return;
+  const solEdge = new Set();
+  for (let i = 0; i < sol.length - 1; i++) {
+    const a = sol[i], b = sol[i + 1];
+    solEdge.add(wk(a[0], a[1], b[0], b[1]));
+  }
+  const avail = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (c < SIZE - 1) { const e = wk(r, c, r, c + 1); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+    if (r < SIZE - 1) { const e = wk(r, c, r + 1, c); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+  }
+  shuffle(avail);
+  const take = Math.floor(avail.length * frac);
+  for (let i = 0; i < take; i++) walls.add(avail[i]);
+}
+
 function wiggleParamsFor(level) {
   if (!(level in WIGGLE_TARGET)) return null;       // default level → no bias
-  return { target: WIGGLE_TARGET[level], bias: WIGGLE_BIAS[level] };
+  return { target: WIGGLE_TARGET[level], bias: WIGGLE_BIAS[level],
+           floorFrac: DECISION_FLOOR_FRAC[level] || 0 };
 }
 // Keep the on-board slider + label in step with the current WIGGLE level.
 function syncWiggleUI() {
@@ -1858,6 +1931,31 @@ function pathWiggliness(path) {
   }
   if (run > longest) longest = run;
   return { turnRatio: turns / (path.length - 2), longestRun: longest };
+}
+
+// "Decision density": the count of interior cells where the solution goes
+// STRAIGHT while an unvisited, un-walled TURN was available. These are exactly
+// the cells where a blind "always turn" strategy diverges from the solution —
+// the puzzle's real teeth at the wiggly end. We select for keeping this above
+// a floor so high-wiggle puzzles can't collapse into a forced always-turn walk.
+function decisionDensity(path, wallSet) {
+  if (!path || path.length < 3) return 0;
+  const seen = new Set([k(path[0][0], path[0][1])]);
+  let pts = 0;
+  for (let i = 1; i < path.length - 1; i++) {
+    const pr = path[i - 1], cu = path[i], nx = path[i + 1];
+    seen.add(k(cu[0], cu[1]));
+    const ldr = cu[0] - pr[0], ldc = cu[1] - pr[1];
+    let turnAvail = false;
+    for (const [nr, nc] of neighbors(cu[0], cu[1])) {
+      if (seen.has(k(nr, nc))) continue;
+      if (wallSet.has(wk(cu[0], cu[1], nr, nc))) continue;
+      if (!((nr - cu[0]) === ldr && (nc - cu[1]) === ldc)) { turnAvail = true; break; }
+    }
+    const solStraight = (nx[0] - cu[0] === ldr && nx[1] - cu[1] === ldc);
+    if (solStraight && turnAvail) pts++;
+  }
+  return pts;
 }
 
 function pickWaypoints(sol, count) {
@@ -2029,6 +2127,7 @@ function generateCandidate(subSeed, wpCount) {
   const uniqWalls = enforceUniqueness(sol, cap);
   if (!uniqWalls) return null;
   walls = uniqWalls;
+  addExtraWalls(sol);   // layer the WALLS-level extra walls (solution-safe, uniqueness-safe)
   // Final difficulty measure: solve to count nodes (already small after enforcement).
   const r = solve(walls, 2, cap);
   return {
@@ -2072,12 +2171,19 @@ function generateForDifficulty() {
       if (observed === target) return cand;
       if (score === 1 && i >= 4) return cand;     // accept a one-band miss later
     } else if (observed === target) {
-      // Difficulty matches — score by closeness to the target turn ratio, and
-      // at the wiggly end also penalise a long straight run (the single long
-      // shot that makes a "wiggly" solution feel straight).
+      // Difficulty matches — score by closeness to the target turn ratio, then
+      // lift the low tail: penalise candidates whose decision density (straight
+      // cells with a turn available — where "always turn" would diverge) falls
+      // below the floor. This keeps the wiggly LOOK while killing the trivially
+      // always-turn-solvable puzzles that the old maximal-turn target produced.
       const w = pathWiggliness(cand.sol);
-      const ws = Math.abs(w.turnRatio - genWiggle.target)
-               + Math.max(0, genWiggle.bias) * 0.15 * (w.longestRun / SIZE);
+      let ws = Math.abs(w.turnRatio - genWiggle.target);
+      if (genWiggle.floorFrac) {
+        const interior = cand.sol.length - 2;
+        const floor = genWiggle.floorFrac * interior;
+        const dens = decisionDensity(cand.sol, cand.walls);
+        if (dens < floor) ws += (floor - dens) * 0.03;
+      }
       if (ws < wBestScore) { wBestScore = ws; wBest = cand; }
     }
   }
@@ -2148,9 +2254,11 @@ function parseURL() {
   const size = parseInt(p.get('size'), 10);
   const diff = p.get('difficulty');
   const w    = parseInt(p.get('w'), 10);
+  const m    = parseInt(p.get('m'), 10);
   if (size && [5,6,7,8].includes(size)) SIZE = size;
   if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
   if (Number.isInteger(w) && w >= 0 && w <= 4) WIGGLE = w;   // this puzzle's style
+  if (Number.isInteger(m) && m >= 0 && m <= 4) WALLS = m;    // this puzzle's wall level
   if (seed) SEED = seed;
   // Sync UI selects.
   const sSel = document.getElementById('sizeSel');
@@ -2158,6 +2266,7 @@ function parseURL() {
   if (sSel) sSel.value = String(SIZE);
   if (dSel) dSel.value = DIFFICULTY;
   syncWiggleUI();
+  syncWallsUI();
 }
 
 function updateURL() {
@@ -2166,6 +2275,7 @@ function updateURL() {
   p.set('size', SIZE);
   p.set('difficulty', DIFFICULTY);
   p.set('w', WIGGLE);
+  p.set('m', WALLS);
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
 
@@ -2510,6 +2620,28 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
     WIGGLE = v;
     setWigglePref(v);                    // remember as the default
     newPuzzle({ newSeed: true });        // fresh puzzle in the new style
+  });
+})();
+
+// Walls slider — a generation parameter on the same puzzle family, like Grid
+// and Difficulty, so it keeps the seed and re-walls (rather than rolling a new
+// seed the way Path does). Reflects the current level, updates its label live,
+// regenerates on release, and remembers the level for future sessions.
+(function () {
+  const slider = document.getElementById('mainWalls');
+  const valEl  = document.getElementById('mainWallsVal');
+  if (!slider) return;
+  slider.value = String(WALLS);
+  valEl.textContent = WALL_LABELS[WALLS] || 'No walls';
+  slider.addEventListener('input', () => {
+    valEl.textContent = WALL_LABELS[+slider.value] || 'No walls';
+  });
+  slider.addEventListener('change', () => {
+    const v = +slider.value;
+    if (v === WALLS) return;             // no real change → don't regenerate
+    WALLS = v;
+    setWallsPref(v);                     // remember as the default
+    newPuzzle({ newSeed: false });       // same seed, re-walled
   });
 })();
 document.getElementById('sizeSel').addEventListener('change', e => {

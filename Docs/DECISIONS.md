@@ -25,6 +25,52 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-06 — [zip-game] "Really Wiggly" (`w=4`) fix: target decision density, not max turns
+**Decision:** Lowered the wiggly-end targets off their pathological ceiling
+(`WIGGLE_TARGET[4]` 0.75 → 0.66, `WIGGLE_BIAS[4]` 1.0 → 0.62; `w3` similarly
+eased) and **replaced the candidate scorer's long-straight-run *penalty* with a
+decision-density *floor***. New `decisionDensity()` counts the interior cells
+where the solution goes straight while an un-walled turn was available — the only
+cells where a blind "always turn" diverges from the answer — and the scorer
+penalises candidates below `DECISION_FLOOR_FRAC` (`{3:0.36, 4:0.30}` of interior
+cells). `w=2` (natural) is untouched, so the daily and every existing link are
+bit-identical.
+**Why:** Max turn-ratio was self-defeating. Measured on 8×8 fiendish (Node
+harness over the real generator core): "max wiggle" nearly *halved* the
+straight-against-turn decision points (~31/puzzle at natural → ~18 at old `w=4`)
+and left an exploitable low tail (min 10, 5% of puzzles under 12 such points), so
+always-turning tracked the solution. High turn-ratio and high decision-density
+are close to mutually exclusive, so the fix keeps the wiggly *look* (turn ratio
+~0.67, still clearly the wiggliest band) while lifting the tail: new `w=4` min
+decision points 17, 0% under 12, turn ratio essentially unchanged (0.688→0.669).
+Constants are tuned against a *proxy* for human difficulty — a sensible starting
+point to feel out by playing, not a proven optimum.
+**Refs:** trace.html `WIGGLE_TARGET`/`WIGGLE_BIAS`/`DECISION_FLOOR_FRAC`,
+`decisionDensity`, scorer in `generateForDifficulty`; IDEAS.md "Generation
+tuning"; supersedes the "to fix" status of the 2026-06-03 IDEAS item.
+
+### 2026-06-06 — [zip-game] Walls slider: a second, solution-safe difficulty lever
+**Decision:** Added **walls** as a first-class puzzle parameter (level 0..4,
+URL param `m` for *maze*, its own on-board slider, `trace.walls` localStorage
+default) alongside `w`. A puzzle is now reproducible from
+`(seed, size, difficulty, w, m)`. **Level 0 = no extra walls = today's exact
+behaviour**, so a missing `m` (the daily, any old link) is unchanged.
+`addExtraWalls()` layers walls *after* uniqueness enforcement, only on internal
+edges the canonical solution does **not** use, up to `WALL_FRAC` of available
+non-solution edges, deterministically via the seeded rng. The walls slider keeps
+the seed and re-walls (like Grid/Difficulty), rather than rolling a new seed
+(like Path).
+**Why:** It's the obvious difficulty lever independent of wiggliness. The
+solution-safety/uniqueness concern from the IDEAS note is handled *by
+construction*: never walling a solution edge keeps the canonical path valid, and
+adding a wall can only forbid edges (never create a route), so the solution count
+can only drop — uniqueness is preserved or improved. Verified on a real solver
+(6×6, all levels, many seeds): no solution edge ever walled, solver count stays
+exactly 1, wall counts scale ~9.6→20.2 across levels 0→4. Difficulty targeting
+sees the walled board because the final solve runs after `addExtraWalls`.
+**Refs:** trace.html `WALL_FRAC`/`WALL_LABELS`/`addExtraWalls`, `generateCandidate`,
+`parseURL`/`updateURL` (`m`), walls slider wiring; IDEAS.md "Generation tuning".
+
 ### 2026-06-03 — [zip-game] GHCR migration completed for the trace image
 **Decision:** The Trace image is now published to `ghcr.io/fireappleblack/trace`
 and pulled by the cluster via a `ghcr-pull` imagePullSecret; `deploy.sh` builds,
