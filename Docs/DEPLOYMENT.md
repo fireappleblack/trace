@@ -38,9 +38,11 @@ detail lives there, this is the executable summary.
 - `echo | openssl s_client -connect zip.hsabren.co.uk:443 -servername zip.hsabren.co.uk 2>/dev/null | openssl x509 -noout -issuer` — verify the served issuer is LE production (§5)
 
 **Routine app update**
-- `podman build -f trace-server/Containerfile -t ghcr.io/<owner>/trace:<version> .` — build the ARM64 image (§3)
-- `podman push ghcr.io/<owner>/trace:<version>` — push to GHCR; nodes pull from there (§3)
-- `kubectl -n trace set image deploy/trace trace=ghcr.io/<owner>/trace:<version>` — rolling update to the new version (§6)
+export REPO_OWNER=fireappleblack
+export APP_VERSION=v0.8.0
+- `podman build -f trace-server/Containerfile -t ghcr.io/$REPO_OWNER/trace:$APP_VERSION .` — build the ARM64 image (§3)
+- `podman push ghcr.io/$REPO_OWNER/trace:$APP_VERSION` — push to GHCR; nodes pull from there (§3)
+- `kubectl -n trace set image deploy/trace trace=ghcr.io/$REPO_OWNER/trace:$APP_VERSION` — rolling update to the new version (§6)
 - `kubectl -n trace rollout status deploy/trace` — block until the rollout is healthy (§6)
 
 ---
