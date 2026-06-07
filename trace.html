@@ -3316,8 +3316,9 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
   });
 })();
 
-// Two-pen "distinct shades" toggle: recolours the number dots in place — no
-// regeneration, so the player's in-progress snakes are preserved.
+// Two-pen "distinct shades" toggle. Flipping it changes the puzzle's effective
+// difficulty, so it must roll a fresh, unique puzzle (new seed) — recolouring an
+// already-solved board in place would be an untraceable cheat.
 (function () {
   const cb = document.getElementById('diffShadesToggle');
   if (!cb) return;
@@ -3325,8 +3326,7 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
   cb.addEventListener('change', () => {
     DIFF_SHADES = cb.checked;
     setDiffShadesPref(DIFF_SHADES);
-    updateURL();
-    render();          // rebuild number dots in the new scheme; keeps penPaths/progress
+    newPuzzle({ newSeed: true });   // new unique puzzle; updateURL runs inside
   });
 })();
 document.getElementById('sizeSel').addEventListener('change', e => {

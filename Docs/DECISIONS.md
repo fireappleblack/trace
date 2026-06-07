@@ -35,8 +35,7 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 only). `true` (default) keeps per-snake colour-coding (reddish Snake A / teal
 Snake B). `false` paints every number dot one neutral shade, so a "3" in Snake A
 is visually identical to the "3" in Snake B — the player must deduce which is the
-next point in each snake, which is much harder. Toggling **re-renders in place**
-(no regeneration; in-progress snakes preserved). Precedence mirrors `t`: explicit
+next point in each snake, which is much harder. Toggling **rolls a fresh puzzle on toggle**, since the setting changes effective difficulty. Precedence mirrors `t`: explicit
 param wins, bare visit restores preference, shared two-pen link without it →
 default colour-coded. Drawn snake *paths* stay two-coloured (they show the
 player's own progress); only the numbered dots go uniform.
