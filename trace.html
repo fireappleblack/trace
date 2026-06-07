@@ -272,6 +272,12 @@
     border: 3px solid var(--ink);
     box-shadow: 0 2px 0 rgba(28,24,19,0.18);
   }
+  /* shades off: one neutral colour for every snake number, so the two snakes'
+     matching numbers are visually identical. */
+  .number.uniform, .number.uniform.start { background: #5A554E; color: var(--paper); }
+  .shade-toggle { flex: 1; display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
+  .shade-toggle input { width: 16px; height: 16px; cursor: pointer; }
+  .shade-hint { color: var(--rule, #b8b0a4); }
 
   .overlay {
     position: absolute;
@@ -1391,6 +1397,12 @@
             aria-label="Chef's choice: random number of points">🎲</button>
   </div>
 
+  <div class="wiggle-bar" id="diffShadesRow" style="display:none;">
+    <span class="wiggle-bar-label">Shades</span>
+    <label class="shade-toggle"><input type="checkbox" id="diffShadesToggle" checked />
+      Colour-code each snake <span class="shade-hint">(off = harder)</span></label>
+  </div>
+
   <div class="settings">
     <div class="setting">
       <label for="mainMode">Mode</label>
@@ -1796,6 +1808,7 @@ let penPaths = [[], []];      // the two players' drawn paths (pen 0, pen 1)
 let activePen = -1;           // which pen the current drag belongs to
 let penDefs = null;           // [{start,startKey,wpByCell,peak}, …] built per puzzle
 let centreKey = null;         // the shared "kiss" cell, key form
+let DIFF_SHADES = true;       // two-pen: true = per-snake colours; false = one neutral shade (harder)
 
 // ─── DOM ────────────────────────────────────────────
 const grid       = document.getElementById('grid');
@@ -2062,6 +2075,18 @@ function setTwoPenPref(v) { try { localStorage.setItem('trace.twopen', v ? '1' :
 function syncTwoPenUI() {
   const sel = document.getElementById('mainMode');
   if (sel) sel.value = TWO_PEN ? 'two' : 'one';
+}
+// Two-pen "distinct shades" option: true colour-codes each snake (reddish vs
+// teal); false paints every number dot one neutral shade, so a "3" in snake A is
+// indistinguishable from the "3" in snake B — the player must work out which is
+// next. Two-pen only; travels as &diffshades=true/false.
+function getDiffShadesPref() { return localStorage.getItem('trace.diffshades') !== '0'; }
+function setDiffShadesPref(v) { try { localStorage.setItem('trace.diffshades', v ? '1' : '0'); } catch (e) {} }
+function syncDiffShadesUI() {
+  const row = document.getElementById('diffShadesRow');
+  const cb  = document.getElementById('diffShadesToggle');
+  if (cb)  cb.checked = DIFF_SHADES;
+  if (row) row.style.display = TWO_PEN ? '' : 'none';
 }
 const toOdd = (d) => (d % 2 === 1) ? d : (d > 5 ? d - 1 : d + 1);   // even → nearest odd in 5..9
 // Snap BOTH dimensions to odd when in two-pen mode (even grids have no centre
@@ -2564,6 +2589,10 @@ function parseURL() {
   if (t !== null) TWO_PEN = (t === '1');
   else if (!seed) TWO_PEN = getTwoPenPref();
   else TWO_PEN = false;
+  const ds = p.get('diffshades');
+  if (ds !== null) DIFF_SHADES = (ds !== 'false');
+  else if (!seed) DIFF_SHADES = getDiffShadesPref();
+  else DIFF_SHADES = true;
   // Size token: single digit 5..9 = square; two digits 55..99 = rows×cols.
   if (Number.isInteger(size)) applySizeToken(size);
   if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
@@ -2584,6 +2613,7 @@ function parseURL() {
   syncWiggleUI();
   syncWallsUI();
   syncTwoPenUI();
+  syncDiffShadesUI();
   syncPointsUI();
 }
 
@@ -2595,6 +2625,7 @@ function updateURL() {
   p.set('w', WIGGLE);
   p.set('m', WALLS);
   if (TWO_PEN) p.set('t', '1');
+  if (TWO_PEN) p.set('diffshades', DIFF_SHADES ? 'true' : 'false');
   if (POINTS >= 3) p.set('pts', POINTS);            // explicit point count only
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
@@ -3098,9 +3129,13 @@ function twoPenNumberFor(r, c) {
   if (!penDefs) return null;
   const ck = k(r, c);
   if (ck === centreKey) return { label: penDefs[0].peak, cls: 'kiss' };
-  if (penDefs[0].wpByCell.has(ck)) return { label: penDefs[0].wpByCell.get(ck), cls: 'snake-a' };
-  if (penDefs[1].wpByCell.has(ck)) return { label: penDefs[1].wpByCell.get(ck), cls: 'snake-b' };
-  return null;
+  const aHit = penDefs[0].wpByCell.has(ck);
+  const bHit = penDefs[1].wpByCell.has(ck);
+  if (!aHit && !bHit) return null;
+  const label = aHit ? penDefs[0].wpByCell.get(ck) : penDefs[1].wpByCell.get(ck);
+  // shades off → one neutral class for both snakes, so identical numbers look identical
+  const cls = DIFF_SHADES ? (aHit ? 'snake-a' : 'snake-b') : 'uniform';
+  return { label, cls };
 }
 // ═══ end two-pen subsystem ═══════════════════════════════════════════════
 
@@ -3280,6 +3315,20 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
     newPuzzle({ newSeed: true });                    // full surprise → fresh seed
   });
 })();
+
+// Two-pen "distinct shades" toggle: recolours the number dots in place — no
+// regeneration, so the player's in-progress snakes are preserved.
+(function () {
+  const cb = document.getElementById('diffShadesToggle');
+  if (!cb) return;
+  syncDiffShadesUI();
+  cb.addEventListener('change', () => {
+    DIFF_SHADES = cb.checked;
+    setDiffShadesPref(DIFF_SHADES);
+    updateURL();
+    render();          // rebuild number dots in the new scheme; keeps penPaths/progress
+  });
+})();
 document.getElementById('sizeSel').addEventListener('change', e => {
   const m = /^(\d+)x(\d+)$/.exec(e.target.value);
   if (m) { ROWS = parseInt(m[1], 10); COLS = parseInt(m[2], 10); }
@@ -3323,6 +3372,7 @@ document.getElementById('diffSel').addEventListener('change', e => {
     if (sizeSel) sizeSel.value = `${ROWS}x${COLS}`;
     setGridOptionState();
     syncPointsUI();                 // range differs between one-pen and two-pen
+    syncDiffShadesUI();             // shades toggle only applies in two-pen
     newPuzzle({ newSeed: true });
   });
 })();

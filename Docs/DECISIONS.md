@@ -30,6 +30,19 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-07 — [zip-game] Two-pen "distinct shades" option (`diffshades`)
+**Decision:** New binary control + URL param **`&diffshades=true|false`** (two-pen
+only). `true` (default) keeps per-snake colour-coding (reddish Snake A / teal
+Snake B). `false` paints every number dot one neutral shade, so a "3" in Snake A
+is visually identical to the "3" in Snake B — the player must deduce which is the
+next point in each snake, which is much harder. Toggling **re-renders in place**
+(no regeneration; in-progress snakes preserved). Precedence mirrors `t`: explicit
+param wins, bare visit restores preference, shared two-pen link without it →
+default colour-coded. Drawn snake *paths* stay two-coloured (they show the
+player's own progress); only the numbered dots go uniform.
+**Refs:** `trace.html` `DIFF_SHADES`, `twoPenNumberFor()`, `.number.uniform`,
+`#diffShadesToggle`/`#diffShadesRow`, parse/updateURL.
+
 ### 2026-06-07 — [zip-game] Point count decoupled from grid; per-mode caps
 **Decision:** The number of numbered points is now an independent control, not a
 function of grid size. **One-pen:** total points `5 … ⌊2·√area⌋` (square → 2×side,
