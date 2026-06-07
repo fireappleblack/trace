@@ -29,6 +29,8 @@ flatten:end -->
     --wall: #1C1813;
     --accent: #D14A2B;
     --accent-ink: #8C2A14;
+    --snake-b: #2A7DA1;
+    --snake-b-ink: #1B5C78;
     --success: #2F6B4F;
     --shadow: rgba(28, 24, 19, 0.12);
   }
@@ -261,6 +263,19 @@ flatten:end -->
   .number.start {
     background: var(--accent);
     color: var(--paper);
+  }
+
+  /* Two-snake mode: each snake's numbers carry its own hue; the shared centre
+     "kiss" reads neutral so it belongs to neither snake. */
+  .number.snake-a { background: var(--accent-ink); }
+  .number.snake-a.start { background: var(--accent); }
+  .number.snake-b { background: var(--snake-b-ink); }
+  .number.snake-b.start { background: var(--snake-b); }
+  .number.kiss {
+    background: var(--paper);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    box-shadow: 0 2px 0 rgba(28,24,19,0.18);
   }
 
   .overlay {
@@ -1356,6 +1371,13 @@ flatten:end -->
 
   <div class="settings">
     <div class="setting">
+      <label for="mainMode">Mode</label>
+      <select id="mainMode">
+        <option value="one" selected>One pen</option>
+        <option value="two">Two snakes</option>
+      </select>
+    </div>
+    <div class="setting">
       <label for="sizeSel">Grid</label>
       <select id="sizeSel">
         <option value="5">5 × 5</option>
@@ -1707,6 +1729,13 @@ let drawing = false;
 let solved = false;
 let lastNodes = 0;      // solver work for current puzzle
 
+// Two-pen ("two snakes kissing") mode.
+let TWO_PEN = false;          // current puzzle is the two-snake variant
+let penPaths = [[], []];      // the two players' drawn paths (pen 0, pen 1)
+let activePen = -1;           // which pen the current drag belongs to
+let penDefs = null;           // [{start,startKey,wpByCell,peak}, …] built per puzzle
+let centreKey = null;         // the shared "kiss" cell, key form
+
 // ─── DOM ────────────────────────────────────────────
 const grid       = document.getElementById('grid');
 const overlay    = document.getElementById('overlay');
@@ -1906,6 +1935,26 @@ function getWallsPref() {
 function setWallsPref(v) { try { localStorage.setItem('trace.walls', String(v)); } catch (e) {} }
 let WALLS = getWallsPref();                         // current puzzle's wall level
 
+// ─── Two-pen mode config ────────────────────────────
+// "Two snakes kissing": the SAME canonical path, split at its midpoint into two
+// halves drawn as two separate pens, each numbered 1..m from its own end and
+// meeting at one shared centre cell. Travels in the URL as t=1. Requires an ODD
+// grid (a true centre cell at the path midpoint), so two-pen runs on 5×5/7×7.
+const TWO_PEN_ODD_SIZES = [5, 7];
+const TWO_PEN_DEFAULT_SIZE = 5;
+function getTwoPenPref() { return localStorage.getItem('trace.twopen') === '1'; }
+function setTwoPenPref(v) { try { localStorage.setItem('trace.twopen', v ? '1' : '0'); } catch (e) {} }
+function syncTwoPenUI() {
+  const sel = document.getElementById('mainMode');
+  if (sel) sel.value = TWO_PEN ? 'two' : 'one';
+}
+function enforceOddSizeForTwoPen() {
+  if (!TWO_PEN) return false;
+  if (TWO_PEN_ODD_SIZES.includes(SIZE)) return false;
+  SIZE = SIZE >= 7 ? 7 : TWO_PEN_DEFAULT_SIZE;
+  return true;
+}
+
 function syncWallsUI() {
   const s = document.getElementById('mainWalls');
   if (s) s.value = String(WALLS);
@@ -1987,6 +2036,19 @@ function decisionDensity(path, wallSet) {
 }
 
 function pickWaypoints(sol, count) {
+  if (TWO_PEN) {
+    const N = sol.length;            // odd grid → odd N → integer midpoint
+    const mid = (N - 1) / 2;
+    const half = Math.max(2, Math.round(Math.min(count, Math.floor(N / 2)) / 2)); // waypoints per snake incl. peak
+    const aIdx = [0];
+    for (let i = 1; i < half - 1; i++) aIdx.push(Math.round((i * mid) / (half - 1)));
+    aIdx.push(mid);
+    const uniqA = [...new Set(aIdx)].sort((a, b) => a - b);
+    const idxSet = new Set(uniqA);
+    for (const i of uniqA) idxSet.add(N - 1 - i);   // mirror to the second half
+    const all = [...idxSet].sort((a, b) => a - b);
+    return all.map((p, i) => ({ r: sol[p][0], c: sol[p][1], n: i + 1 }));
+  }
   const N = Math.min(count, Math.floor(sol.length / 2));
   const idx = [0];
   for (let i = 1; i < N - 1; i++) {
@@ -2239,6 +2301,7 @@ async function newPuzzle(opts) {
   if (opts.fromURL !== true) {
     if (opts.newSeed !== false) SEED = randomSeedString();
   }
+  enforceOddSizeForTwoPen();          // two-pen needs an odd grid (centre cell)
   showLoader('Composing…');
   // Yield to paint loader.
   await new Promise(r => setTimeout(r, 16));
@@ -2259,6 +2322,9 @@ async function newPuzzle(opts) {
     lastNodes = 0;
   }
   path = [];
+  penPaths = [[], []];
+  activePen = -1;
+  if (TWO_PEN) setupTwoPen();         // build snake A/B label maps + centre
   solved = false;
   Attempts.reset();
   if (typeof HintSystem !== 'undefined') HintSystem.reset();
@@ -2283,11 +2349,18 @@ function parseURL() {
   const diff = p.get('difficulty');
   const w    = parseInt(p.get('w'), 10);
   const m    = parseInt(p.get('m'), 10);
+  const t    = p.get('t');
+  // Mode precedence: an explicit ?t= wins (faithful shared links); a shared
+  // puzzle with no t is classic; a bare first visit restores the saved choice.
+  if (t !== null) TWO_PEN = (t === '1');
+  else if (!seed) TWO_PEN = getTwoPenPref();
+  else TWO_PEN = false;
   if (size && [5,6,7,8].includes(size)) SIZE = size;
   if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
   if (Number.isInteger(w) && w >= 0 && w <= 4) WIGGLE = w;   // this puzzle's style
   if (Number.isInteger(m) && m >= 0 && m <= 4) WALLS = m;    // this puzzle's wall level
   if (seed) SEED = seed;
+  enforceOddSizeForTwoPen();                                 // two-pen → odd grid
   // Sync UI selects.
   const sSel = document.getElementById('sizeSel');
   const dSel = document.getElementById('diffSel');
@@ -2295,6 +2368,7 @@ function parseURL() {
   if (dSel) dSel.value = DIFFICULTY;
   syncWiggleUI();
   syncWallsUI();
+  syncTwoPenUI();
 }
 
 function updateURL() {
@@ -2304,6 +2378,7 @@ function updateURL() {
   p.set('difficulty', DIFFICULTY);
   p.set('w', WIGGLE);
   p.set('m', WALLS);
+  if (TWO_PEN) p.set('t', '1');
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
 
@@ -2390,13 +2465,24 @@ function render() {
       if (c > 0        && walls.has(wk(r, c - 1, r, c))) cell.classList.add('wall-left');
       if (r < SIZE - 1 && walls.has(wk(r, c, r + 1, c))) cell.classList.add('wall-bottom');
       if (c < SIZE - 1 && walls.has(wk(r, c, r, c + 1))) cell.classList.add('wall-right');
-      const w = wpMap.get(k(r, c));
-      if (w) {
-        const num = document.createElement('div');
-        num.className = 'number' + (w.n === 1 ? ' start' : '');
-        num.textContent = w.n;
-        num.style.setProperty('--idx', w.n - 1);
-        cell.appendChild(num);
+      if (TWO_PEN) {
+        const tp = twoPenNumberFor(r, c);
+        if (tp) {
+          const num = document.createElement('div');
+          num.className = 'number ' + tp.cls + (tp.label === 1 ? ' start' : '');
+          num.textContent = tp.label;
+          num.style.setProperty('--idx', tp.label - 1);
+          cell.appendChild(num);
+        }
+      } else {
+        const w = wpMap.get(k(r, c));
+        if (w) {
+          const num = document.createElement('div');
+          num.className = 'number' + (w.n === 1 ? ' start' : '');
+          num.textContent = w.n;
+          num.style.setProperty('--idx', w.n - 1);
+          cell.appendChild(num);
+        }
       }
       grid.appendChild(cell);
     }
@@ -2413,6 +2499,7 @@ function cellCenter(r, c) {
 }
 
 function drawPath() {
+  if (TWO_PEN) { drawPathTwoPen(); return; }
   const w = boardWrap.clientWidth;
   const h = boardWrap.clientHeight;
   overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
@@ -2458,6 +2545,21 @@ function drawPath() {
 }
 
 function updateStatus() {
+  if (TWO_PEN) {
+    const drawn = penPaths[0].length + penPaths[1].length - (
+      (penHeadIsCentre(0) && penHeadIsCentre(1)) ? 1 : 0);   // don't double-count a shared kiss
+    progressEl.textContent = `${Math.max(0, drawn)} / ${SIZE * SIZE}`;
+    if (solved) {
+      statusEl.textContent = 'Solved';
+      statusEl.classList.add('solved'); boardWrap.classList.add('solved');
+    } else {
+      boardWrap.classList.remove('solved'); statusEl.classList.remove('solved');
+      if (penPaths[0].length === 0 && penPaths[1].length === 0) statusEl.textContent = 'Begin each snake at 1';
+      else if (penHeadIsCentre(0) || penHeadIsCentre(1))        statusEl.textContent = 'Almost…';
+      else                                                       statusEl.textContent = 'Drawing';
+    }
+    return;
+  }
   progressEl.textContent = `${path.length} / ${SIZE * SIZE}`;
   if (solved) {
     statusEl.textContent = 'Solved';
@@ -2491,6 +2593,7 @@ function canAdd(newCell) {
   return true;
 }
 function checkSolved() {
+  if (TWO_PEN) return checkSolvedTwoPen();
   if (path.length !== SIZE * SIZE) return false;
   for (let i = 0; i < waypoints.length; i++) {
     const w = waypoints[i];
@@ -2529,6 +2632,7 @@ function getCellAt(x, y) {
   return [rr, cc];
 }
 function handleStart(x, y) {
+  if (TWO_PEN) return handleStartTwoPen(x, y);
   // Hard interaction lock: while the non-dismissable onboarding gate is
   // visible, the puzzle behind the frosted overlay is a preview only. Ignore
   // all board input until the player has completed the compliance opt-in (at
@@ -2576,6 +2680,7 @@ function handleStart(x, y) {
   // back along the path, or use the Undo / Clear buttons.
 }
 function handleMove(x, y) {
+  if (TWO_PEN) return handleMoveTwoPen(x, y);
   if (!drawing) return;
   const cell = getCellAt(x, y);
   if (!cell) return;
@@ -2605,7 +2710,184 @@ function handleMove(x, y) {
   // ignored. No jumping or truncation, so a winding path that crosses near
   // itself won't lose its tail if your finger strays.
 }
-function handleEnd() { drawing = false; }
+function handleEnd() { drawing = false; activePen = -1; }
+
+// ═══ TWO-PEN ("two snakes kissing") subsystem ════════════════════════════
+// All gated by TWO_PEN; classic single-path play never enters any of this.
+// Built from the SAME canonical solution + symmetric waypoints. Snake A runs
+// from one endpoint to the centre; snake B from the other endpoint to the same
+// centre. Each is numbered 1..m from its own end; both peak at the shared kiss.
+
+function k2(cell) { return k(cell[0], cell[1]); }
+
+// Build the two snake definitions from the (symmetric, classic-labelled)
+// waypoints. waypoints are 1..K in index order; K is odd, so the middle one is
+// the centre/peak shared by both snakes.
+function setupTwoPen() {
+  penPaths = [[], []];
+  activePen = -1;
+  if (!TWO_PEN || waypoints.length < 3) { penDefs = null; centreKey = null; return; }
+  const K = waypoints.length;
+  const cMid = (K - 1) / 2;                 // index of the centre waypoint
+  const m = cMid + 1;                       // labels per snake (incl. peak)
+  const centreWp = waypoints[cMid];
+  centreKey = k(centreWp.r, centreWp.c);
+  const mk = (list) => {
+    const wpByCell = new Map();
+    list.forEach((w, i) => wpByCell.set(k(w.r, w.c), i + 1));   // 1..m, peak = m
+    return { start: [list[0].r, list[0].c], startKey: k(list[0].r, list[0].c), wpByCell, peak: m };
+  };
+  const aList = waypoints.slice(0, cMid + 1);          // endA(1) … centre(m)
+  const bList = waypoints.slice(cMid).reverse();       // endB(1) … centre(m)
+  penDefs = [mk(aList), mk(bList)];
+}
+
+function penHead(pen) { const pp = penPaths[pen]; return pp.length ? pp[pp.length - 1] : null; }
+function penHeadIsCentre(pen) { const h = penHead(pen); return !!h && k(h[0], h[1]) === centreKey; }
+function cellInPens(cell) {
+  for (const pen of [0, 1]) for (const p of penPaths[pen]) if (p[0] === cell[0] && p[1] === cell[1]) return true;
+  return false;
+}
+function penWpHitCount(pen) {
+  let n = 0;
+  for (const p of penPaths[pen]) if (penDefs[pen].wpByCell.has(k(p[0], p[1]))) n++;
+  return n;
+}
+
+// Can the given pen extend onto `cell`?
+function canAddPen(pen, cell) {
+  const pp = penPaths[pen];
+  if (pp.length === 0) return cell[0] === penDefs[pen].start[0] && cell[1] === penDefs[pen].start[1];
+  if (penHeadIsCentre(pen)) return false;           // snake already finished at the kiss
+  const head = pp[pp.length - 1];
+  if (!isAdj(head, cell)) return false;
+  if (walls.has(wk(head[0], head[1], cell[0], cell[1]))) return false;
+  const ck = k(cell[0], cell[1]);
+  // Disjoint snakes — a cell may belong to at most one pen, except the shared
+  // centre, which both pens finish on.
+  if (ck !== centreKey && cellInPens(cell)) return false;
+  const ord = penDefs[pen].wpByCell.get(ck);
+  if (ord !== undefined) {
+    if (ord !== penWpHitCount(pen) + 1) return false;   // waypoints in order
+  }
+  // The centre may only be entered as this snake's final (peak) step.
+  if (ck === centreKey && ord !== penDefs[pen].peak) return false;
+  return true;
+}
+
+function checkSolvedTwoPen() {
+  if (!penDefs) return false;
+  if (penPaths[0].length === 0 || penPaths[1].length === 0) return false;
+  if (!penHeadIsCentre(0) || !penHeadIsCentre(1)) return false;
+  // Together cover every cell exactly once (the kiss is shared, counted once).
+  const total = penPaths[0].length + penPaths[1].length - 1;
+  return total === SIZE * SIZE;
+}
+
+function handleStartTwoPen(x, y) {
+  const gate = document.getElementById('onboardingModal');
+  if (gate && !gate.hidden) return;
+  if (solved) return;
+  const cell = getCellAt(x, y);
+  if (!cell) return;
+  const ck = k(cell[0], cell[1]);
+  // 1) Begin a snake at its start cell.
+  for (const pen of [0, 1]) {
+    if (penPaths[pen].length === 0 && ck === penDefs[pen].startKey) {
+      penPaths[pen] = [cell]; activePen = pen; drawing = true;
+      Attempts.recordMove(); refresh(); return;
+    }
+  }
+  // 2) Grab a snake's head to arm dragging.
+  for (const pen of [0, 1]) {
+    const h = penHead(pen);
+    if (h && h[0] === cell[0] && h[1] === cell[1] && !penHeadIsCentre(pen)) {
+      activePen = pen; drawing = true; return;
+    }
+  }
+  // 3) Tap-to-extend whichever snake this cell legally continues.
+  for (const pen of [0, 1]) {
+    if (penPaths[pen].length && canAddPen(pen, cell)) {
+      penPaths[pen].push(cell); activePen = pen; drawing = true;
+      Attempts.recordMove(); refresh(); return;
+    }
+  }
+  // Anywhere else does nothing (no accidental truncation), matching classic.
+}
+
+function handleMoveTwoPen(x, y) {
+  if (!drawing || activePen < 0) return;
+  const cell = getCellAt(x, y);
+  if (!cell) return;
+  const pp = penPaths[activePen];
+  const last = pp[pp.length - 1];
+  if (!last || (last[0] === cell[0] && last[1] === cell[1])) return;
+  // Retrace one step by dragging back onto the previous cell.
+  if (pp.length >= 2) {
+    const prev = pp[pp.length - 2];
+    if (prev[0] === cell[0] && prev[1] === cell[1]) {
+      pp.pop(); Attempts.recordBacktrack(); refresh(); return;
+    }
+  }
+  if (canAddPen(activePen, cell)) {
+    pp.push(cell); Attempts.recordMove(); refresh();
+  }
+}
+
+// Draw both snakes (distinct hues) plus the shared kiss.
+function drawPathTwoPen() {
+  const w = boardWrap.clientWidth, h = boardWrap.clientHeight;
+  overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  overlay.innerHTML = '';
+  const cw = w / SIZE;
+  if (cheatMode && solution && solution.length > 1) {
+    const gpts = solution.map(([r, c]) => cellCenter(r, c).join(',')).join(' ');
+    const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    ghost.setAttribute('points', gpts);
+    ghost.setAttribute('fill', 'none');
+    ghost.setAttribute('stroke', 'var(--ink)');
+    ghost.setAttribute('stroke-width', Math.max(2, cw * 0.06));
+    ghost.setAttribute('stroke-linecap', 'round'); ghost.setAttribute('stroke-linejoin', 'round');
+    ghost.setAttribute('stroke-dasharray', '1 7'); ghost.setAttribute('opacity', '0.5');
+    overlay.appendChild(ghost);
+  }
+  const lineW = Math.max(10, cw * 0.55);
+  const hues = ['var(--accent)', 'var(--snake-b, #2a9d8f)'];
+  for (const pen of [0, 1]) {
+    const pp = penPaths[pen];
+    if (pp.length === 0) continue;
+    const color = solved ? 'var(--success)' : hues[pen];
+    if (pp.length === 1) {
+      const [cx, cy] = cellCenter(pp[0][0], pp[0][1]);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('r', lineW / 2);
+      dot.setAttribute('fill', color); dot.setAttribute('opacity', '0.85');
+      overlay.appendChild(dot);
+      continue;
+    }
+    const pts = pp.map(([r, c]) => cellCenter(r, c).join(',')).join(' ');
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('points', pts);
+    line.setAttribute('fill', 'none'); line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', lineW);
+    line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-linejoin', 'round');
+    line.setAttribute('opacity', '0.88');
+    overlay.appendChild(line);
+  }
+}
+
+// Number map for rendering: each waypoint cell → {label, pen}. The centre shows
+// the peak number once (neutral). Starts show 1.
+function twoPenNumberFor(r, c) {
+  if (!penDefs) return null;
+  const ck = k(r, c);
+  if (ck === centreKey) return { label: penDefs[0].peak, cls: 'kiss' };
+  if (penDefs[0].wpByCell.has(ck)) return { label: penDefs[0].wpByCell.get(ck), cls: 'snake-a' };
+  if (penDefs[1].wpByCell.has(ck)) return { label: penDefs[1].wpByCell.get(ck), cls: 'snake-b' };
+  return null;
+}
+// ═══ end two-pen subsystem ═══════════════════════════════════════════════
+
 
 boardWrap.addEventListener('mousedown', e => { e.preventDefault(); handleStart(e.clientX, e.clientY); });
 window.addEventListener('mousemove', e => { if (drawing) handleMove(e.clientX, e.clientY); });
@@ -2617,12 +2899,28 @@ boardWrap.addEventListener('touchcancel', handleEnd);
 
 // ─── Buttons ────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', () => {
+  if (TWO_PEN) {
+    let pen = activePen;
+    if (pen < 0) pen = penPaths[0].length >= penPaths[1].length ? 0 : 1;
+    if (penPaths[pen].length === 0) pen = pen === 0 ? 1 : 0;
+    if (penPaths[pen].length === 0) return;
+    penPaths[pen].pop();
+    Attempts.recordUndo();
+    refresh();
+    return;
+  }
   if (path.length === 0) return;
   path.pop();
   Attempts.recordUndo();
   refresh();
 });
 document.getElementById('clearBtn').addEventListener('click', () => {
+  if (TWO_PEN) {
+    penPaths = [[], []]; activePen = -1;
+    Attempts.recordClear();
+    hideToast(); refresh();
+    return;
+  }
   path = [];
   Attempts.recordClear();
   hideToast(); refresh();
@@ -2674,12 +2972,45 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
 })();
 document.getElementById('sizeSel').addEventListener('change', e => {
   SIZE = parseInt(e.target.value, 10);
+  if (enforceOddSizeForTwoPen()) {     // even grid picked while in two-pen → snap
+    document.getElementById('sizeSel').value = String(SIZE);
+  }
   newPuzzle({ newSeed: false });
 });
 document.getElementById('diffSel').addEventListener('change', e => {
   DIFFICULTY = e.target.value;
   newPuzzle({ newSeed: false });
 });
+
+// Mode selector — switch between the classic single pen and the two-snake
+// variant. Two-pen needs an odd grid, so we grey out the even grid options
+// while it's active (and snap the current size if needed). A mode change rolls
+// a fresh puzzle since the board's numbering changes entirely.
+(function () {
+  const sel = document.getElementById('mainMode');
+  if (!sel) return;
+  function setGridOptionState() {
+    const sizeSel = document.getElementById('sizeSel');
+    if (!sizeSel) return;
+    for (const opt of sizeSel.options) {
+      const even = (parseInt(opt.value, 10) % 2 === 0);
+      opt.disabled = TWO_PEN && even;
+    }
+  }
+  sel.value = TWO_PEN ? 'two' : 'one';
+  setGridOptionState();
+  sel.addEventListener('change', () => {
+    const wantTwo = sel.value === 'two';
+    if (wantTwo === TWO_PEN) return;
+    TWO_PEN = wantTwo;
+    setTwoPenPref(TWO_PEN);
+    enforceOddSizeForTwoPen();
+    const sizeSel = document.getElementById('sizeSel');
+    if (sizeSel) sizeSel.value = String(SIZE);
+    setGridOptionState();
+    newPuzzle({ newSeed: true });
+  });
+})();
 
 // Share button — copies URL to clipboard.
 const shareBtn = document.getElementById('shareBtn');
