@@ -1,9 +1,4 @@
 <!DOCTYPE html>
-<!-- flatten:begin
-     repo-path: trace.html
-     generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
-flatten:end -->
-
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -265,8 +260,8 @@ flatten:end -->
     color: var(--paper);
   }
 
-  /* Two-snake mode: each snake's numbers carry its own hue; the shared centre
-     "kiss" reads neutral so it belongs to neither snake. */
+  /* Two-snake mode: each snake's numbers carry its own hue, and the shared
+     centre "kiss" reads as neutral so it belongs to neither snake. */
   .number.snake-a { background: var(--accent-ink); }
   .number.snake-a.start { background: var(--accent); }
   .number.snake-b { background: var(--snake-b-ink); }
@@ -968,6 +963,21 @@ flatten:end -->
     margin-bottom: 14px;
     padding: 0 2px;
   }
+  .dice-btn {
+    flex: 0 0 auto;
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 2px 2px 0 var(--ink);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 4px 7px;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .dice-btn:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
+  .dice-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink); }
+  .dice-inline { font-size: 11px; padding: 1px 4px; box-shadow: 1px 1px 0 var(--ink); margin-left: 4px; vertical-align: middle; }
   .wiggle-bar-label {
     flex-shrink: 0;
     font-family: 'Albert Sans', sans-serif;
@@ -1353,6 +1363,7 @@ flatten:end -->
     <button class="btn" id="clearBtn">Clear</button>
     <button class="btn" id="hintBtn"><span class="hint-label">Hint</span></button>
     <button class="btn primary" id="newBtn">New Puzzle</button>
+    <button class="btn" id="surpriseBtn" title="Restaurant decides — randomise everything">🎲 Surprise me</button>
   </div>
 
   <div class="wiggle-bar">
@@ -1360,6 +1371,7 @@ flatten:end -->
     <input type="range" id="mainWiggle" class="wiggle-range" min="0" max="4" step="1" value="2"
            aria-label="Solution style, from almost straight to really wiggly" />
     <span class="wiggle-bar-val" id="mainWiggleVal">Balanced</span>
+    <button type="button" class="dice-btn" id="wiggleDice" title="Chef's choice — random path style" aria-label="Random path style">🎲</button>
   </div>
 
   <div class="wiggle-bar">
@@ -1367,6 +1379,16 @@ flatten:end -->
     <input type="range" id="mainWalls" class="wiggle-range" min="0" max="4" step="1" value="0"
            aria-label="Wall density, from no walls to a maze" />
     <span class="wiggle-bar-val" id="mainWallsVal">Fewest walls</span>
+    <button type="button" class="dice-btn" id="wallsDice" title="Chef's choice — random wall density" aria-label="Random wall density">🎲</button>
+  </div>
+
+  <div class="wiggle-bar">
+    <span class="wiggle-bar-label">Points</span>
+    <input type="range" id="mainPoints" class="wiggle-range" min="5" max="16" step="1" value="7"
+           aria-label="How many numbered points to thread" />
+    <span class="wiggle-bar-val" id="mainPointsVal">6</span>
+    <button type="button" class="dice-btn" id="pointsDice" title="Chef's choice — random number of points"
+            aria-label="Chef's choice: random number of points">🎲</button>
   </div>
 
   <div class="settings">
@@ -1378,12 +1400,33 @@ flatten:end -->
       </select>
     </div>
     <div class="setting">
-      <label for="sizeSel">Grid</label>
+      <label for="sizeSel">Grid <button type="button" class="dice-btn dice-inline" id="gridDice" title="Chef's choice — random grid" aria-label="Random grid">🎲</button></label>
       <select id="sizeSel">
-        <option value="5">5 × 5</option>
-        <option value="6" selected>6 × 6</option>
-        <option value="7">7 × 7</option>
-        <option value="8">8 × 8</option>
+        <option value="5x5">5 × 5</option>
+        <option value="5x6">5 × 6</option>
+        <option value="5x7">5 × 7</option>
+        <option value="5x8">5 × 8</option>
+        <option value="5x9">5 × 9</option>
+        <option value="6x5">6 × 5</option>
+        <option value="6x6" selected>6 × 6</option>
+        <option value="6x7">6 × 7</option>
+        <option value="6x8">6 × 8</option>
+        <option value="6x9">6 × 9</option>
+        <option value="7x5">7 × 5</option>
+        <option value="7x6">7 × 6</option>
+        <option value="7x7">7 × 7</option>
+        <option value="7x8">7 × 8</option>
+        <option value="7x9">7 × 9</option>
+        <option value="8x5">8 × 5</option>
+        <option value="8x6">8 × 6</option>
+        <option value="8x7">8 × 7</option>
+        <option value="8x8">8 × 8</option>
+        <option value="8x9">8 × 9</option>
+        <option value="9x5">9 × 5</option>
+        <option value="9x6">9 × 6</option>
+        <option value="9x7">9 × 7</option>
+        <option value="9x8">9 × 8</option>
+        <option value="9x9">9 × 9</option>
       </select>
     </div>
     <div class="setting">
@@ -1677,14 +1720,32 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = 'v0.9.2';
+const TRACE_VERSION = 'dev';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
-let SIZE = 6;
+// Grids are RECTANGULAR: ROWS × COLS, each dimension 5..9. (Square grids are
+// simply the ROWS === COLS case.)
+let ROWS = 6, COLS = 6;
 let DIFFICULTY = 'tricky';
 let SEED = '';
 let cheatMode = false;   // when on, the solution is outlined; solves are flagged
+
+// Backward-compatible size token for URLs / logging / leaderboards. A square
+// grid keeps its single-digit value (so every existing link, leaderboard, and
+// logged attempt is byte-identical to before); a rectangle encodes as
+// rows*10 + cols. Both dims are 5..9, so rectangles land in 55..99 and never
+// collide with the 5..9 square codes.
+function sizeToken() { return (ROWS === COLS) ? COLS : (ROWS * 10 + COLS); }
+function applySizeToken(tok) {
+  if (!Number.isInteger(tok)) return false;
+  if (tok >= 5 && tok <= 9) { ROWS = COLS = tok; return true; }
+  if (tok >= 55 && tok <= 99) {
+    const r = Math.floor(tok / 10), c = tok % 10;
+    if (r >= 5 && r <= 9 && c >= 5 && c <= 9) { ROWS = r; COLS = c; return true; }
+  }
+  return false;
+}
 
 const DIFFS = ['gentle', 'tricky', 'knotty', 'fiendish'];
 
@@ -1724,12 +1785,12 @@ function classify(nodes, area) {
 let solution = [];      // canonical Hamiltonian path
 let waypoints = [];     // [{r, c, n}, ...] in order
 let walls = new Set();  // canonical "r1,c1|r2,c2"
-let path = [];          // user's drawn path
+let path = [];          // user's drawn path (classic mode)
 let drawing = false;
 let solved = false;
 let lastNodes = 0;      // solver work for current puzzle
 
-// Two-pen ("two snakes kissing") mode.
+// Two-pen ("two snakes kissing") mode — see the TWO-PEN block below.
 let TWO_PEN = false;          // current puzzle is the two-snake variant
 let penPaths = [[], []];      // the two players' drawn paths (pen 0, pen 1)
 let activePen = -1;           // which pen the current drag belongs to
@@ -1805,27 +1866,77 @@ function shuffle(a) {
 function neighbors(r, c) {
   const out = [];
   if (r > 0)        out.push([r - 1, c]);
-  if (r < SIZE - 1) out.push([r + 1, c]);
+  if (r < ROWS - 1) out.push([r + 1, c]);
   if (c > 0)        out.push([r, c - 1]);
-  if (c < SIZE - 1) out.push([r, c + 1]);
+  if (c < COLS - 1) out.push([r, c + 1]);
   return out;
 }
 
 // ─── Hamiltonian path (DFS + Warnsdorff) ────────────
+// Backbite Hamiltonian-path generator. Starts from the boustrophedon snake
+// (always a valid Hamiltonian path) and applies seeded random "backbite" moves:
+// pick an end, pick a random grid-neighbour w of that end; w sits at index j in
+// the path, so reversing the segment beyond j re-links the end to w and yields
+// another valid Hamiltonian path. Every move is O(segment) and never fails, so
+// this reliably and DETERMINISTICALLY produces a well-mixed path on any grid —
+// including large/odd ones the backtracking search struggles with. Used only
+// for new grid configs (rectangles, or any 9-dimension); legacy squares ≤8×8
+// keep the original search so their existing links stay byte-identical.
+function backbiteHamiltonian() {
+  const R = ROWS, C = COLS, total = R * C;
+  const arr = [];
+  for (let r = 0; r < R; r++) {
+    if (r % 2 === 0) for (let c = 0; c < C; c++) arr.push(r * C + c);
+    else             for (let c = C - 1; c >= 0; c--) arr.push(r * C + c);
+  }
+  const pos = new Int32Array(total);
+  for (let i = 0; i < total; i++) pos[arr[i]] = i;
+  const nbrs = (idx) => {
+    const r = (idx / C) | 0, c = idx % C, o = [];
+    if (r > 0) o.push(idx - C); if (r < R - 1) o.push(idx + C);
+    if (c > 0) o.push(idx - 1); if (c < C - 1) o.push(idx + 1);
+    return o;
+  };
+  const moves = total * 8;   // strong mixing
+  for (let m = 0; m < moves; m++) {
+    const useTail = rng() < 0.5;
+    const end = useTail ? arr[total - 1] : arr[0];
+    const ns = nbrs(end);
+    const w = ns[(rng() * ns.length) | 0];
+    const j = pos[w];
+    let lo, hi;
+    if (useTail) { if (j === total - 2) continue; lo = j + 1; hi = total - 1; }
+    else         { if (j === 1) continue;         lo = 0;     hi = j - 1; }
+    while (lo < hi) {
+      const a = arr[lo], b = arr[hi];
+      arr[lo] = b; arr[hi] = a; pos[b] = lo; pos[a] = hi; lo++; hi--;
+    }
+  }
+  return arr.map(idx => [(idx / C) | 0, idx % C]);
+}
+
 function generateHamiltonian() {
-  const total = SIZE * SIZE;
+  // New grid configs (rectangles, or any dimension of 9) use the robust,
+  // deterministic backbite generator. Legacy squares (≤8×8) keep the original
+  // search so existing seeds/links reproduce exactly.
+  if (!(ROWS === COLS && ROWS <= 8)) return backbiteHamiltonian();
+  const total = ROWS * COLS;
   let start;
-  if (SIZE % 2 === 1) {
-    // Odd grid: start must be on majority checkerboard parity.
-    do { start = [(rng() * SIZE) | 0, (rng() * SIZE) | 0]; }
+  if (total % 2 === 1) {
+    // Odd cell count (both dims odd): both endpoints must sit on the majority
+    // checkerboard parity (the corner colour, parity 0).
+    do { start = [(rng() * ROWS) | 0, (rng() * COLS) | 0]; }
     while ((start[0] + start[1]) % 2 !== 0);
   } else {
-    start = [(rng() * SIZE) | 0, (rng() * SIZE) | 0];
+    start = [(rng() * ROWS) | 0, (rng() * COLS) | 0];
   }
   const visited = new Set([k(start[0], start[1])]);
   const p = [start];
   const t0 = Date.now();
-  const TIMEOUT = 800;
+  // Backtracking search cost grows with area; give bigger grids more time so
+  // 9×9 (81 cells) reliably yields a path. Each generation attempt reseeds the
+  // RNG, so multiple attempts act as random restarts of the Warnsdorff search.
+  const TIMEOUT = total <= 49 ? 800 : total <= 64 ? 1400 : 2400;
 
   function onwardCount(r, c) {
     let n = 0;
@@ -1937,22 +2048,97 @@ let WALLS = getWallsPref();                         // current puzzle's wall lev
 
 // ─── Two-pen mode config ────────────────────────────
 // "Two snakes kissing": the SAME canonical path, split at its midpoint into two
-// halves drawn as two separate pens, each numbered 1..m from its own end and
-// meeting at one shared centre cell. Travels in the URL as t=1. Requires an ODD
-// grid (a true centre cell at the path midpoint), so two-pen runs on 5×5/7×7.
-const TWO_PEN_ODD_SIZES = [5, 7];
-const TWO_PEN_DEFAULT_SIZE = 5;
+// halves that the player draws as two separate pens, each numbered 1..m from its
+// own end and meeting at a single shared centre cell. Travels in the URL as
+// `t=1`. Default off, so a missing `t` is the classic single-path game.
+//
+// Requires an ODD cell count, i.e. BOTH dimensions odd, so the path has a true
+// centre cell at its exact midpoint (verified: with the centre pinned there,
+// the existing uniqueness enforcement already yields exactly one two-snake
+// solution — no solver/enforcement change needed).
 function getTwoPenPref() { return localStorage.getItem('trace.twopen') === '1'; }
 function setTwoPenPref(v) { try { localStorage.setItem('trace.twopen', v ? '1' : '0'); } catch (e) {} }
+
 function syncTwoPenUI() {
   const sel = document.getElementById('mainMode');
   if (sel) sel.value = TWO_PEN ? 'two' : 'one';
 }
+const toOdd = (d) => (d % 2 === 1) ? d : (d > 5 ? d - 1 : d + 1);   // even → nearest odd in 5..9
+// Snap BOTH dimensions to odd when in two-pen mode (even grids have no centre
+// cell). Returns true if either dimension changed.
 function enforceOddSizeForTwoPen() {
   if (!TWO_PEN) return false;
-  if (TWO_PEN_ODD_SIZES.includes(SIZE)) return false;
-  SIZE = SIZE >= 7 ? 7 : TWO_PEN_DEFAULT_SIZE;
+  const r = toOdd(ROWS), c = toOdd(COLS);
+  if (r === ROWS && c === COLS) return false;
+  ROWS = r; COLS = c;
   return true;
+}
+
+// ─── Point count — decoupled from grid size ─────────
+// One-pen: the player threads N TOTAL points, 5 .. ⌊2√area⌋ (8×8 → 5–16, by area
+// for rectangles). Two-pen: the player threads m points PER SNAKE, ODD only,
+// 3 .. pairMax where pairMax = largest odd ≤ ⌊√area⌋+1 (8×8 → 9). The two snakes
+// share the centre kiss, so m per snake = a combined path of 2m−1 points.
+// POINTS===0 means "auto": one-pen falls back to the legacy difficulty×area
+// count (so classic links without a `pts` param reproduce byte-identically);
+// two-pen derives a sensible odd default from difficulty.
+let POINTS = 0;
+function getPointsPref() {
+  const v = parseInt(localStorage.getItem('trace.points'), 10);
+  return (Number.isInteger(v) && v >= 3) ? v : 0;
+}
+function setPointsPref(v) { try { localStorage.setItem('trace.points', String(v)); } catch (e) {} }
+const gridArea = () => ROWS * COLS;
+const toOddUp = (v) => (v % 2 === 1) ? v : v + 1;
+// One-pen total-point ceiling: 2×side for squares, area-proportional otherwise.
+function loneMaxPoints() {
+  const a = gridArea();
+  return Math.max(5, Math.min(Math.floor(a / 2), Math.floor(2 * Math.sqrt(a))));
+}
+// Two-pen per-snake ceiling (odd): largest odd ≤ ⌊√area⌋+1.
+function pairMaxPerSnake() {
+  let m = Math.floor(Math.sqrt(gridArea())) + 1;
+  if (m % 2 === 0) m--;
+  return Math.max(3, m);
+}
+function pointsRange() {
+  return TWO_PEN ? { min: 3, max: pairMaxPerSnake(), step: 2 }
+                 : { min: 5, max: loneMaxPoints(),  step: 1 };
+}
+// Auto per-snake count for two-pen (no legacy to preserve): scale with
+// difficulty — gentler puzzles get more points, fiendish the fewest.
+function autoPerSnake() {
+  const max = pairMaxPerSnake();
+  const frac = ({ gentle: 1.0, tricky: 0.75, knotty: 0.55, fiendish: 0.0 })[DIFFICULTY];
+  let m = toOddUp(Math.round(3 + (frac == null ? 0.6 : frac) * (max - 3)));
+  return Math.max(3, Math.min(m, max));
+}
+// Count handed to generation. One-pen → total K (0 = legacy auto). Two-pen →
+// per-snake m (always concrete, never 0).
+function effectivePoints() {
+  if (TWO_PEN) {
+    const m = (POINTS >= 3) ? toOddUp(POINTS) : autoPerSnake();
+    return Math.max(3, Math.min(m, pairMaxPerSnake()));
+  }
+  if (POINTS <= 0) return 0;                          // auto (legacy)
+  return Math.max(5, Math.min(POINTS, loneMaxPoints()));
+}
+function syncPointsUI() {
+  const slider = document.getElementById('mainPoints');
+  const valEl  = document.getElementById('mainPointsVal');
+  if (!slider) return;
+  const r = pointsRange();
+  slider.min = String(r.min); slider.max = String(r.max); slider.step = String(r.step);
+  const explicit = POINTS > 0;
+  let shown;
+  if (TWO_PEN) shown = explicit ? Math.max(3, Math.min(toOddUp(POINTS), r.max)) : autoPerSnake();
+  else         shown = explicit ? Math.max(5, Math.min(POINTS, r.max))
+                                : Math.min(targetWaypoints(DIFFICULTY, gridArea()), r.max);
+  slider.value = String(shown);
+  if (valEl) {
+    const suffix = explicit ? '' : ' (auto)';
+    valEl.textContent = TWO_PEN ? (shown + ' / snake' + suffix) : (shown + suffix);
+  }
 }
 
 function syncWallsUI() {
@@ -1975,9 +2161,9 @@ function addExtraWalls(sol) {
     solEdge.add(wk(a[0], a[1], b[0], b[1]));
   }
   const avail = [];
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    if (c < SIZE - 1) { const e = wk(r, c, r, c + 1); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
-    if (r < SIZE - 1) { const e = wk(r, c, r + 1, c); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (c < COLS - 1) { const e = wk(r, c, r, c + 1); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+    if (r < ROWS - 1) { const e = wk(r, c, r + 1, c); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
   }
   shuffle(avail);
   const take = Math.floor(avail.length * frac);
@@ -2036,10 +2222,14 @@ function decisionDensity(path, wallSet) {
 }
 
 function pickWaypoints(sol, count) {
+  // Two-pen mode: waypoints must be symmetric about the path midpoint, with the
+  // centre cell as a shared waypoint, so the two snakes are equal-length and
+  // meet at one kiss. Labels stay classic (1..K in index order) for the solver /
+  // uniqueness enforcement; the two-snake relabelling happens at display time.
   if (TWO_PEN) {
     const N = sol.length;            // odd grid → odd N → integer midpoint
     const mid = (N - 1) / 2;
-    const half = Math.max(2, Math.round(Math.min(count, Math.floor(N / 2)) / 2)); // waypoints per snake incl. peak
+    const half = Math.max(2, Math.min(count, mid + 1)); // count = points PER SNAKE (incl. shared peak)
     const aIdx = [0];
     for (let i = 1; i < half - 1; i++) aIdx.push(Math.round((i * mid) / (half - 1)));
     aIdx.push(mid);
@@ -2068,17 +2258,17 @@ function pickWaypoints(sol, count) {
 // Returns the first one or two found, plus node count.
 // Used both to verify uniqueness AND to estimate difficulty.
 function buildSolverData(wallSet) {
-  const N = SIZE * SIZE;
+  const N = ROWS * COLS;
   const isWp = new Int8Array(N); isWp.fill(-1);
-  for (const w of waypoints) isWp[w.r * SIZE + w.c] = w.n - 1;
+  for (const w of waypoints) isWp[w.r * COLS + w.c] = w.n - 1;
   const adj = [];
   for (let i = 0; i < N; i++) {
-    const r = (i / SIZE) | 0, c = i % SIZE;
+    const r = (i / COLS) | 0, c = i % COLS;
     const a = [];
-    if (r > 0          && !wallSet.has(wk(r - 1, c, r, c))) a.push((r - 1) * SIZE + c);
-    if (r < SIZE - 1   && !wallSet.has(wk(r, c, r + 1, c))) a.push((r + 1) * SIZE + c);
-    if (c > 0          && !wallSet.has(wk(r, c - 1, r, c))) a.push(r * SIZE + c - 1);
-    if (c < SIZE - 1   && !wallSet.has(wk(r, c, r, c + 1))) a.push(r * SIZE + c + 1);
+    if (r > 0          && !wallSet.has(wk(r - 1, c, r, c))) a.push((r - 1) * COLS + c);
+    if (r < ROWS - 1   && !wallSet.has(wk(r, c, r + 1, c))) a.push((r + 1) * COLS + c);
+    if (c > 0          && !wallSet.has(wk(r, c - 1, r, c))) a.push(r * COLS + c - 1);
+    if (c < COLS - 1   && !wallSet.has(wk(r, c, r, c + 1))) a.push(r * COLS + c + 1);
     adj.push(a);
   }
   return { adj, isWp, N };
@@ -2087,7 +2277,7 @@ function buildSolverData(wallSet) {
 function solve(wallSet, maxCount, nodeCap) {
   nodeCap = nodeCap || 200000;
   const { adj, isWp, N } = buildSolverData(wallSet);
-  const startIdx = waypoints[0].r * SIZE + waypoints[0].c;
+  const startIdx = waypoints[0].r * COLS + waypoints[0].c;
   const visited = new Uint8Array(N);
   visited[startIdx] = 1;
   const cur = [startIdx];
@@ -2179,8 +2369,8 @@ function enforceUniqueness(sol, cap) {
     shuffle(idxs);
     for (const i of idxs) {
       const a = altPath[i], b = altPath[i + 1];
-      const ar = (a / SIZE) | 0, ac = a % SIZE;
-      const br = (b / SIZE) | 0, bc = b % SIZE;
+      const ar = (a / COLS) | 0, ac = a % COLS;
+      const br = (b / COLS) | 0, bc = b % COLS;
       const ek = wk(ar, ac, br, bc);
       if (!solEdgeSet.has(ek) && !candidate.has(ek)) {
         candidate.add(ek);
@@ -2194,7 +2384,7 @@ function enforceUniqueness(sol, cap) {
 }
 
 function pickAlternate(found, sol) {
-  const solStr = sol.map(([r, c]) => r * SIZE + c).join(',');
+  const solStr = sol.map(([r, c]) => r * COLS + c).join(',');
   for (const f of found) {
     if (f.join(',') !== solStr) return f;
   }
@@ -2212,8 +2402,11 @@ function generateCandidate(subSeed, wpCount) {
   solution = sol;
   waypoints = pickWaypoints(sol, wpCount);
   walls = new Set();
-  // Solver cap scales nonlinearly with grid size since search space does.
-  const cap = Math.max(50000, SIZE * SIZE * 5000);
+  // Solver cap scales with grid area since the search space does. Large grids
+  // (area > 64, i.e. beyond 8×8) need a much higher budget to confirm
+  // uniqueness, which is intrinsically expensive there.
+  const area = ROWS * COLS;
+  const cap = area <= 64 ? Math.max(50000, area * 5000) : area * 9000;
   const uniqWalls = enforceUniqueness(sol, cap);
   if (!uniqWalls) return null;
   walls = uniqWalls;
@@ -2227,9 +2420,14 @@ function generateCandidate(subSeed, wpCount) {
 }
 
 function generateForDifficulty() {
-  const area = SIZE * SIZE;
+  const area = ROWS * COLS;
   const target = DIFFICULTY;
-  const baseWp = targetWaypoints(target, area);
+  // Waypoint count K is now decoupled from grid size. POINTS>0 fixes K (the
+  // player's choice, 5..12, clamped to what the grid can hold); POINTS===0 is
+  // the legacy "auto" behaviour where K tracks difficulty × area — so existing
+  // links with no `pts` reproduce byte-identically.
+  const fixedK = effectivePoints();          // 0 when auto
+  const baseWp = fixedK > 0 ? fixedK : targetWaypoints(target, area);
 
   // Wiggliness target from the current puzzle's WIGGLE level. null = default/
   // natural, in which case the original fast path runs and puzzles are
@@ -2237,9 +2435,10 @@ function generateForDifficulty() {
   genWiggle = wiggleParamsFor(WIGGLE);
   const wiggleActive = !!genWiggle;
 
-  // Larger grids cost more per attempt; bound total time spent.
-  const ATTEMPTS    = SIZE <= 6 ? 18 : SIZE === 7 ? 10 : 6;
-  const TIME_BUDGET = SIZE <= 6 ? 1800 : SIZE === 7 ? 2800 : 4000;
+  // Larger grids cost more per attempt; bound total time spent (by area, so
+  // rectangles are budgeted sensibly too).
+  const ATTEMPTS    = area <= 42 ? 18 : area <= 56 ? 10 : 8;
+  const TIME_BUDGET = area <= 42 ? 1800 : area <= 56 ? 2800 : 6500;
 
   let best = null, bestScore = Infinity;     // closest difficulty (fallback)
   let wBest = null, wBestScore = Infinity;   // closest wiggliness among difficulty matches
@@ -2247,8 +2446,9 @@ function generateForDifficulty() {
 
   for (let i = 0; i < ATTEMPTS; i++) {
     if (best && Date.now() - t0 > TIME_BUDGET) break;
-    // Vary waypoint count slightly across attempts to broaden coverage.
-    const wpJitter = (i % 5) - 2;
+    // Vary waypoint count slightly across attempts to broaden coverage — but
+    // only in auto mode. When K is fixed, every attempt uses exactly that K.
+    const wpJitter = fixedK > 0 ? 0 : (i % 5) - 2;
     const wp = Math.max(3, baseWp + wpJitter);
     const cand = generateCandidate(i, wp);
     if (!cand) continue;
@@ -2286,12 +2486,13 @@ function generateForDifficulty() {
 // ─── Snake fallback (should almost never trigger) ───
 function snakeFallback() {
   const sol = [];
-  for (let r = 0; r < SIZE; r++) {
-    if (r % 2 === 0) for (let c = 0; c < SIZE; c++) sol.push([r, c]);
-    else              for (let c = SIZE - 1; c >= 0; c--) sol.push([r, c]);
+  for (let r = 0; r < ROWS; r++) {
+    if (r % 2 === 0) for (let c = 0; c < COLS; c++) sol.push([r, c]);
+    else              for (let c = COLS - 1; c >= 0; c--) sol.push([r, c]);
   }
   solution = sol;
-  waypoints = pickWaypoints(sol, targetWaypoints(DIFFICULTY, SIZE * SIZE));
+  const fixedK = effectivePoints();
+  waypoints = pickWaypoints(sol, fixedK > 0 ? fixedK : targetWaypoints(DIFFICULTY, ROWS * COLS));
   walls = new Set();
 }
 
@@ -2307,10 +2508,17 @@ async function newPuzzle(opts) {
   await new Promise(r => setTimeout(r, 16));
 
   let cand = null;
-  try {
-    cand = generateForDifficulty();
-  } catch (e) {
-    console.error(e);
+  // On the rare failed generation (low point counts on the largest grids), try
+  // a fresh seed before falling back to a trivial snake — but only for fresh
+  // puzzles, never a shared link (whose seed must reproduce exactly).
+  const tries = (opts.fromURL === true) ? 1 : 3;
+  for (let attempt = 0; attempt < tries && !cand; attempt++) {
+    if (attempt > 0) SEED = randomSeedString();
+    try {
+      cand = generateForDifficulty();
+    } catch (e) {
+      console.error(e);
+    }
   }
   if (cand) {
     solution = cand.sol;
@@ -2350,35 +2558,44 @@ function parseURL() {
   const w    = parseInt(p.get('w'), 10);
   const m    = parseInt(p.get('m'), 10);
   const t    = p.get('t');
+  const pts  = parseInt(p.get('pts'), 10);
   // Mode precedence: an explicit ?t= wins (faithful shared links); a shared
   // puzzle with no t is classic; a bare first visit restores the saved choice.
   if (t !== null) TWO_PEN = (t === '1');
   else if (!seed) TWO_PEN = getTwoPenPref();
   else TWO_PEN = false;
-  if (size && [5,6,7,8].includes(size)) SIZE = size;
+  // Size token: single digit 5..9 = square; two digits 55..99 = rows×cols.
+  if (Number.isInteger(size)) applySizeToken(size);
   if (diff && DIFFS.includes(diff)) DIFFICULTY = diff;
   if (Number.isInteger(w) && w >= 0 && w <= 4) WIGGLE = w;   // this puzzle's style
   if (Number.isInteger(m) && m >= 0 && m <= 4) WALLS = m;    // this puzzle's wall level
+  // Point count K: explicit pts wins; bare first visit restores the saved
+  // choice; a shared puzzle with no pts uses auto (POINTS = 0) so it reproduces.
+  if (Number.isInteger(pts) && pts >= 3) POINTS = pts;
+  else if (!seed) POINTS = getPointsPref();
+  else POINTS = 0;
   if (seed) SEED = seed;
   enforceOddSizeForTwoPen();                                 // two-pen → odd grid
   // Sync UI selects.
   const sSel = document.getElementById('sizeSel');
   const dSel = document.getElementById('diffSel');
-  if (sSel) sSel.value = String(SIZE);
+  if (sSel) sSel.value = `${ROWS}x${COLS}`;
   if (dSel) dSel.value = DIFFICULTY;
   syncWiggleUI();
   syncWallsUI();
   syncTwoPenUI();
+  syncPointsUI();
 }
 
 function updateURL() {
   const p = new URLSearchParams();
   p.set('seed', SEED);
-  p.set('size', SIZE);
+  p.set('size', sizeToken());
   p.set('difficulty', DIFFICULTY);
   p.set('w', WIGGLE);
   p.set('m', WALLS);
   if (TWO_PEN) p.set('t', '1');
+  if (POINTS >= 3) p.set('pts', POINTS);            // explicit point count only
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
 
@@ -2393,16 +2610,13 @@ function updateSeedDisplay() {
 // seeing the real puzzle they're about to play (which would let them pre-solve
 // it before the timer can start). Colours use the page's CSS variables, which
 // resolve because the SVG is injected into the live DOM.
-function buildPuzzleSVG(size, solution, waypoints) {
-  if (!size || !solution || solution.length < 2) return '';
-  const C = 100, D = size * C, rad = C * 0.32;
+function buildPuzzleSVG(rows, cols, solution, waypoints) {
+  if (!rows || !cols || !solution || solution.length < 2) return '';
+  const C = 100, W = cols * C, H = rows * C, rad = C * 0.32;
   const ctr = ([r, c]) => [c * C + C / 2, r * C + C / 2];
   let grid = '';
-  for (let i = 0; i <= size; i++) {
-    const p = i * C;
-    grid += `<line x1="${p}" y1="0" x2="${p}" y2="${D}" stroke="var(--rule)" stroke-width="2"/>`
-          + `<line x1="0" y1="${p}" x2="${D}" y2="${p}" stroke="var(--rule)" stroke-width="2"/>`;
-  }
+  for (let i = 0; i <= cols; i++) { const p = i * C; grid += `<line x1="${p}" y1="0" x2="${p}" y2="${H}" stroke="var(--rule)" stroke-width="2"/>`; }
+  for (let i = 0; i <= rows; i++) { const p = i * C; grid += `<line x1="0" y1="${p}" x2="${W}" y2="${p}" stroke="var(--rule)" stroke-width="2"/>`; }
   const pts = solution.map(ctr).map(p => p.join(',')).join(' ');
   const line = `<polyline points="${pts}" fill="none" stroke="var(--accent)" `
              + `stroke-width="${C * 0.5}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
@@ -2412,15 +2626,15 @@ function buildPuzzleSVG(size, solution, waypoints) {
          + `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" `
          + `font-family="'Albert Sans',sans-serif" font-weight="700" font-size="${C * 0.42}" fill="var(--ink)">${w.n}</text>`;
   }).join('');
-  return `<svg viewBox="0 0 ${D} ${D}" xmlns="http://www.w3.org/2000/svg">`
-       + `<rect x="0" y="0" width="${D}" height="${D}" rx="${C * 0.12}" fill="var(--paper)"/>`
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`
+       + `<rect x="0" y="0" width="${W}" height="${H}" rx="${C * 0.12}" fill="var(--paper)"/>`
        + grid + line + wps + `</svg>`;
 }
 
 // A pleasant, pre-computed wiggly 6×6 sample shown to first-time players (or
 // anyone who has cleared local data) before they've completed one of their own.
 const SAMPLE_PUZZLE = {
-  size: 6,
+  size: 6, rows: 6, cols: 6,
   solution: [[1,2],[0,2],[0,3],[1,3],[1,4],[0,4],[0,5],[1,5],[2,5],[2,4],[2,3],[2,2],[3,2],[3,3],[3,4],[3,5],[4,5],[5,5],[5,4],[4,4],[4,3],[5,3],[5,2],[4,2],[4,1],[5,1],[5,0],[4,0],[3,0],[3,1],[2,1],[2,0],[1,0],[1,1],[0,1],[0,0]],
   waypoints: [{n:1,r:1,c:2},{n:2,r:2,c:3},{n:3,r:5,c:4},{n:4,r:4,c:0},{n:5,r:0,c:0}],
 };
@@ -2430,7 +2644,7 @@ const SAMPLE_PUZZLE = {
 function saveLastPuzzleSnapshot() {
   try {
     localStorage.setItem('trace.lastPuzzle', JSON.stringify({
-      size: SIZE,
+      size: sizeToken(), rows: ROWS, cols: COLS,
       solution: solution,
       waypoints: waypoints.map(w => ({ n: w.n, r: w.r, c: w.c })),
     }));
@@ -2448,23 +2662,25 @@ function getLastPuzzleData() {
 
 // ─── Render ─────────────────────────────────────────
 function render() {
-  grid.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
-  grid.style.gridTemplateRows    = `repeat(${SIZE}, 1fr)`;
+  grid.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+  grid.style.gridTemplateRows    = `repeat(${ROWS}, 1fr)`;
+  // Drive the board's shape from the grid so rectangles keep square cells.
+  boardWrap.style.aspectRatio = `${COLS} / ${ROWS}`;
   grid.innerHTML = '';
   const wpMap = new Map();
   waypoints.forEach(w => wpMap.set(k(w.r, w.c), w));
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
       cell.dataset.r = r;
       cell.dataset.c = c;
-      if (r === SIZE - 1) cell.classList.add('last-row');
-      if (c === SIZE - 1) cell.classList.add('last-col');
+      if (r === ROWS - 1) cell.classList.add('last-row');
+      if (c === COLS - 1) cell.classList.add('last-col');
       if (r > 0        && walls.has(wk(r - 1, c, r, c))) cell.classList.add('wall-top');
       if (c > 0        && walls.has(wk(r, c - 1, r, c))) cell.classList.add('wall-left');
-      if (r < SIZE - 1 && walls.has(wk(r, c, r + 1, c))) cell.classList.add('wall-bottom');
-      if (c < SIZE - 1 && walls.has(wk(r, c, r, c + 1))) cell.classList.add('wall-right');
+      if (r < ROWS - 1 && walls.has(wk(r, c, r + 1, c))) cell.classList.add('wall-bottom');
+      if (c < COLS - 1 && walls.has(wk(r, c, r, c + 1))) cell.classList.add('wall-right');
       if (TWO_PEN) {
         const tp = twoPenNumberFor(r, c);
         if (tp) {
@@ -2493,8 +2709,8 @@ function render() {
 function cellCenter(r, c) {
   const w = boardWrap.clientWidth;
   const h = boardWrap.clientHeight;
-  const cw = w / SIZE;
-  const ch = h / SIZE;
+  const cw = w / COLS;
+  const ch = h / ROWS;
   return [c * cw + cw / 2, r * ch + ch / 2];
 }
 
@@ -2504,7 +2720,7 @@ function drawPath() {
   const h = boardWrap.clientHeight;
   overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
   overlay.innerHTML = '';
-  const cw = w / SIZE;
+  const cw = w / COLS;
   // Cheat mode: faint dashed ghost of the intended solution, drawn underneath
   // the player's path and visible even before they start.
   if (cheatMode && solution && solution.length > 1) {
@@ -2548,7 +2764,7 @@ function updateStatus() {
   if (TWO_PEN) {
     const drawn = penPaths[0].length + penPaths[1].length - (
       (penHeadIsCentre(0) && penHeadIsCentre(1)) ? 1 : 0);   // don't double-count a shared kiss
-    progressEl.textContent = `${Math.max(0, drawn)} / ${SIZE * SIZE}`;
+    progressEl.textContent = `${Math.max(0, drawn)} / ${ROWS * COLS}`;
     if (solved) {
       statusEl.textContent = 'Solved';
       statusEl.classList.add('solved'); boardWrap.classList.add('solved');
@@ -2560,7 +2776,7 @@ function updateStatus() {
     }
     return;
   }
-  progressEl.textContent = `${path.length} / ${SIZE * SIZE}`;
+  progressEl.textContent = `${path.length} / ${ROWS * COLS}`;
   if (solved) {
     statusEl.textContent = 'Solved';
     statusEl.classList.add('solved');
@@ -2569,7 +2785,7 @@ function updateStatus() {
     boardWrap.classList.remove('solved');
     statusEl.classList.remove('solved');
     if (path.length === 0)                 statusEl.textContent = 'Begin at 1';
-    else if (path.length === SIZE * SIZE)  statusEl.textContent = 'Almost…';
+    else if (path.length === ROWS * COLS)  statusEl.textContent = 'Almost…';
     else                                    statusEl.textContent = 'Drawing';
   }
 }
@@ -2594,7 +2810,7 @@ function canAdd(newCell) {
 }
 function checkSolved() {
   if (TWO_PEN) return checkSolvedTwoPen();
-  if (path.length !== SIZE * SIZE) return false;
+  if (path.length !== ROWS * COLS) return false;
   for (let i = 0; i < waypoints.length; i++) {
     const w = waypoints[i];
     const idx = path.findIndex(p => p[0] === w.r && p[1] === w.c);
@@ -2626,9 +2842,9 @@ function getCellAt(x, y) {
   const r = boardWrap.getBoundingClientRect();
   const rx = x - r.left, ry = y - r.top;
   if (rx < 0 || ry < 0 || rx > r.width || ry > r.height) return null;
-  const cw = r.width / SIZE, ch = r.height / SIZE;
+  const cw = r.width / COLS, ch = r.height / ROWS;
   const cc = Math.floor(rx / cw), rr = Math.floor(ry / ch);
-  if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return null;
+  if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS) return null;
   return [rr, cc];
 }
 function handleStart(x, y) {
@@ -2781,7 +2997,7 @@ function checkSolvedTwoPen() {
   if (!penHeadIsCentre(0) || !penHeadIsCentre(1)) return false;
   // Together cover every cell exactly once (the kiss is shared, counted once).
   const total = penPaths[0].length + penPaths[1].length - 1;
-  return total === SIZE * SIZE;
+  return total === ROWS * COLS;
 }
 
 function handleStartTwoPen(x, y) {
@@ -2839,7 +3055,7 @@ function drawPathTwoPen() {
   const w = boardWrap.clientWidth, h = boardWrap.clientHeight;
   overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
   overlay.innerHTML = '';
-  const cw = w / SIZE;
+  const cw = w / COLS;
   if (cheatMode && solution && solution.length > 1) {
     const gpts = solution.map(([r, c]) => cellCenter(r, c).join(',')).join(' ');
     const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
@@ -2888,7 +3104,6 @@ function twoPenNumberFor(r, c) {
 }
 // ═══ end two-pen subsystem ═══════════════════════════════════════════════
 
-
 boardWrap.addEventListener('mousedown', e => { e.preventDefault(); handleStart(e.clientX, e.clientY); });
 window.addEventListener('mousemove', e => { if (drawing) handleMove(e.clientX, e.clientY); });
 window.addEventListener('mouseup', handleEnd);
@@ -2900,6 +3115,7 @@ boardWrap.addEventListener('touchcancel', handleEnd);
 // ─── Buttons ────────────────────────────────────────
 document.getElementById('undoBtn').addEventListener('click', () => {
   if (TWO_PEN) {
+    // Undo a step from the most-recently-extended snake (or whichever is longest).
     let pen = activePen;
     if (pen < 0) pen = penPaths[0].length >= penPaths[1].length ? 0 : 1;
     if (penPaths[pen].length === 0) pen = pen === 0 ? 1 : 0;
@@ -2970,22 +3186,119 @@ document.getElementById('newBtn').addEventListener('click', () => newPuzzle({ ne
     newPuzzle({ newSeed: false });       // same seed, re-walled
   });
 })();
+
+// Points slider + chef's-choice dice. One-pen: 5..⌊2√area⌋ total points (step 1).
+// Two-pen: 3..pairMax points PER SNAKE, odd only (step 2). The dice rolls a value
+// in range and writes it to the URL, so the "random" puzzle stays shareable.
+(function () {
+  const slider = document.getElementById('mainPoints');
+  const valEl  = document.getElementById('mainPointsVal');
+  const dice   = document.getElementById('pointsDice');
+  if (!slider) return;
+  syncPointsUI();
+  slider.addEventListener('input', () => {
+    const v = +slider.value;            // live label only; no regenerate mid-drag
+    if (valEl) valEl.textContent = TWO_PEN ? (v + ' / snake') : String(v);
+  });
+  slider.addEventListener('change', () => {
+    let v = +slider.value;
+    if (TWO_PEN && v % 2 === 0) v++;     // snap to odd per-snake
+    POINTS = v; setPointsPref(v);
+    syncPointsUI();
+    newPuzzle({ newSeed: false });
+  });
+  if (dice) dice.addEventListener('click', () => {
+    const r = pointsRange();
+    const steps = Math.floor((r.max - r.min) / r.step);
+    const pick = r.min + r.step * Math.floor(Math.random() * (steps + 1));
+    POINTS = pick; setPointsPref(pick);
+    syncPointsUI();
+    newPuzzle({ newSeed: false });
+  });
+})();
+
+// ─── Per-control "chef's choice" dice + "restaurant decides" ────────────────
+// Each rolls its control to a random in-range value and regenerates. The rolled
+// value is written to the URL by updateURL (called inside newPuzzle), so every
+// randomised puzzle stays shareable and reproducible. Per-control dice keep the
+// current seed (roll just that knob); "Surprise me" rolls everything + a fresh
+// seed.
+(function () {
+  const rint = (n) => Math.floor(Math.random() * n);
+  const rollWiggle = () => rint(5);                 // 0..4
+  const rollWalls  = () => rint(5);                 // 0..4
+  const rollGrid = (twoPen) => {
+    const dims = twoPen ? [5, 7, 9] : [5, 6, 7, 8, 9];   // two-pen needs odd dims
+    return [dims[rint(dims.length)], dims[rint(dims.length)]];
+  };
+  const rollPointsValue = () => {
+    const r = pointsRange();
+    const steps = Math.floor((r.max - r.min) / r.step);
+    return r.min + r.step * rint(steps + 1);
+  };
+  const setGrid = (r, c) => {
+    ROWS = r; COLS = c;
+    const sizeSel = document.getElementById('sizeSel');
+    if (sizeSel) sizeSel.value = `${ROWS}x${COLS}`;
+  };
+  const applyGridOptionStates = () => {
+    const sizeSel = document.getElementById('sizeSel');
+    if (!sizeSel) return;
+    for (const opt of sizeSel.options) {
+      const mm = /^(\d+)x(\d+)$/.exec(opt.value);
+      const hasEven = mm && ((+mm[1] % 2 === 0) || (+mm[2] % 2 === 0));
+      opt.disabled = TWO_PEN && !!hasEven;
+    }
+  };
+
+  const wd = document.getElementById('wiggleDice');
+  if (wd) wd.addEventListener('click', () => {
+    WIGGLE = rollWiggle(); setWigglePref(WIGGLE); syncWiggleUI();
+    newPuzzle({ newSeed: false });
+  });
+  const ld = document.getElementById('wallsDice');
+  if (ld) ld.addEventListener('click', () => {
+    WALLS = rollWalls(); setWallsPref(WALLS); syncWallsUI();
+    newPuzzle({ newSeed: false });
+  });
+  const gd = document.getElementById('gridDice');
+  if (gd) gd.addEventListener('click', () => {
+    const [r, c] = rollGrid(TWO_PEN); setGrid(r, c);
+    syncPointsUI();                                  // grid capacity changed
+    newPuzzle({ newSeed: false });
+  });
+  const sb = document.getElementById('surpriseBtn');
+  if (sb) sb.addEventListener('click', () => {
+    TWO_PEN = Math.random() < 0.5;                   // mode first — it constrains the rest
+    setTwoPenPref(TWO_PEN); syncTwoPenUI(); applyGridOptionStates();
+    const [r, c] = rollGrid(TWO_PEN); setGrid(r, c);
+    DIFFICULTY = DIFFS[rint(DIFFS.length)];
+    const dSel = document.getElementById('diffSel'); if (dSel) dSel.value = DIFFICULTY;
+    WIGGLE = rollWiggle(); setWigglePref(WIGGLE); syncWiggleUI();
+    WALLS  = rollWalls();  setWallsPref(WALLS);   syncWallsUI();
+    POINTS = rollPointsValue(); setPointsPref(POINTS); syncPointsUI();
+    newPuzzle({ newSeed: true });                    // full surprise → fresh seed
+  });
+})();
 document.getElementById('sizeSel').addEventListener('change', e => {
-  SIZE = parseInt(e.target.value, 10);
-  if (enforceOddSizeForTwoPen()) {     // even grid picked while in two-pen → snap
-    document.getElementById('sizeSel').value = String(SIZE);
+  const m = /^(\d+)x(\d+)$/.exec(e.target.value);
+  if (m) { ROWS = parseInt(m[1], 10); COLS = parseInt(m[2], 10); }
+  if (enforceOddSizeForTwoPen()) {     // even dim picked while in two-pen → snap
+    document.getElementById('sizeSel').value = `${ROWS}x${COLS}`;
   }
+  syncPointsUI();                      // capacity may have changed
   newPuzzle({ newSeed: false });
 });
 document.getElementById('diffSel').addEventListener('change', e => {
   DIFFICULTY = e.target.value;
+  syncPointsUI();                      // auto K display tracks difficulty
   newPuzzle({ newSeed: false });
 });
 
 // Mode selector — switch between the classic single pen and the two-snake
-// variant. Two-pen needs an odd grid, so we grey out the even grid options
-// while it's active (and snap the current size if needed). A mode change rolls
-// a fresh puzzle since the board's numbering changes entirely.
+// variant. Two-pen needs both dimensions odd, so we grey out any option with an
+// even dimension while it's active (and snap the current size if needed). A
+// mode change rolls a fresh puzzle since the board's numbering changes entirely.
 (function () {
   const sel = document.getElementById('mainMode');
   if (!sel) return;
@@ -2993,8 +3306,9 @@ document.getElementById('diffSel').addEventListener('change', e => {
     const sizeSel = document.getElementById('sizeSel');
     if (!sizeSel) return;
     for (const opt of sizeSel.options) {
-      const even = (parseInt(opt.value, 10) % 2 === 0);
-      opt.disabled = TWO_PEN && even;
+      const mm = /^(\d+)x(\d+)$/.exec(opt.value);
+      const hasEven = mm && ((parseInt(mm[1], 10) % 2 === 0) || (parseInt(mm[2], 10) % 2 === 0));
+      opt.disabled = TWO_PEN && !!hasEven;
     }
   }
   sel.value = TWO_PEN ? 'two' : 'one';
@@ -3006,8 +3320,9 @@ document.getElementById('diffSel').addEventListener('change', e => {
     setTwoPenPref(TWO_PEN);
     enforceOddSizeForTwoPen();
     const sizeSel = document.getElementById('sizeSel');
-    if (sizeSel) sizeSel.value = String(SIZE);
+    if (sizeSel) sizeSel.value = `${ROWS}x${COLS}`;
     setGridOptionState();
+    syncPointsUI();                 // range differs between one-pen and two-pen
     newPuzzle({ newSeed: true });
   });
 })();
@@ -3086,7 +3401,7 @@ const Attempts = (function() {
     const now = Date.now();
     return {
       seed: SEED,
-      size: SIZE,
+      size: sizeToken(),
       difficulty: DIFFICULTY,
       started_at: startedAt || now,
       completed_at: now,
@@ -4220,7 +4535,8 @@ const Onboarding = (function() {
     const bd = document.getElementById('onboardingBackdrop');
     if (bd) {
       const data = getLastPuzzleData() || SAMPLE_PUZZLE;
-      bd.innerHTML = buildPuzzleSVG(data.size, data.solution, data.waypoints);
+      const rr = data.rows || data.size, cc = data.cols || data.size;
+      bd.innerHTML = buildPuzzleSVG(rr, cc, data.solution, data.waypoints);
     }
     el.hidden = false;
     uiTextReady = loadUiText();
@@ -4335,7 +4651,7 @@ const Leaderboard = (function() {
   async function renderPuzzle() {
     pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
     try {
-      const url = `/api/leaderboard/puzzle?seed=${encodeURIComponent(SEED)}&size=${SIZE}&difficulty=${DIFFICULTY}&limit=50`;
+      const url = `/api/leaderboard/puzzle?seed=${encodeURIComponent(SEED)}&size=${sizeToken()}&difficulty=${DIFFICULTY}&limit=50`;
       const data = await fetchJSON(url);
       const meta = `Seed <strong>${data.seed}</strong> · ${data.size}×${data.size} · ${data.difficulty}`;
       if (!data.rows.length) {
@@ -4640,9 +4956,10 @@ document.getElementById('dailyBtn').addEventListener('click', async () => {
 // is explicit and defaults to WIGGLE_DEFAULT, so the daily is canonical
 // (w=2 for everyone) regardless of the player's current slider position.
 function loadPuzzleByParams(seed, size, difficulty, w) {
-  SEED = seed; SIZE = size; DIFFICULTY = difficulty;
+  SEED = seed; DIFFICULTY = difficulty;
+  applySizeToken(parseInt(size, 10));
   WIGGLE = (Number.isInteger(w) && w >= 0 && w <= 4) ? w : WIGGLE_DEFAULT;
-  document.getElementById('sizeSel').value = String(size);
+  document.getElementById('sizeSel').value = `${ROWS}x${COLS}`;
   document.getElementById('diffSel').value = difficulty;
   syncWiggleUI();
   newPuzzle({ fromURL: true });

@@ -9,6 +9,24 @@ Loose, not-yet-committed ideas. Unlike `STATUS.md` (which tracks the live
 system and its risks), this is a parking lot for things still being thought
 through. Move an item into a real task / `STATUS.md` once it's decided.
 
+## Per-control "chef's choice" randomisers + "restaurant decides" — DONE (2026-06-07)
+
+Implemented. Every interactive control now has a 🎲: **Path/wiggle**, **Walls**,
+**Points**, and **Grid** each roll their own value (keeping the current seed), and
+a **"🎲 Surprise me"** button ("restaurant decides") rolls *everything at once* —
+mode, grid, difficulty, path, walls, points — with a fresh seed. Two-pen rolls
+respect the constraints (odd grid dimensions, odd per-snake point counts). Every
+rolled value is written to the URL via `updateURL`, so any randomised puzzle is
+fully shareable/reproducible. Validated: 30 random "surprise" draws → 0 invariant
+violations, 28/30 generated first try (misses are the 9×9 low-point frontier,
+absorbed by `newPuzzle`'s reseed-retry).
+
+Refs: `trace.html` randomiser IIFE (`wiggleDice`/`wallsDice`/`gridDice`/
+`pointsDice`/`surpriseBtn`); `.dice-btn` styling.
+
+Possible follow-ups: a Mode 🎲 (currently only via Surprise, since a binary toggle
+is odd as a die); a brief "rolled: …" toast so players see what changed.
+
 ## Onboarding backdrop — "other" image option (3c)
 
 The onboarding gate now shows a **finished-puzzle backdrop** behind the welcome

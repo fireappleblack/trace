@@ -30,6 +30,72 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-07 — [zip-game] Point count decoupled from grid; per-mode caps
+**Decision:** The number of numbered points is now an independent control, not a
+function of grid size. **One-pen:** total points `5 … ⌊2·√area⌋` (square → 2×side,
+so 8×8 → 5–16, 9×9 → 5–18; rectangles scale by area). **Two-pen:** points **per
+snake**, **odd only**, `3 … pairMax` where `pairMax = largest odd ≤ ⌊√area⌋+1`
+(8×8 → {3,5,7,9}); with the shared centre kiss, `m` per snake = a combined path of
+`2m−1` numbered points. New first-class URL param `pts=` (omitted in auto mode).
+A **chef's-choice dice** rolls a value in range (odd in two-pen) and writes it to
+the URL, so a "random" puzzle stays shareable. `POINTS = 0` = **auto**: one-pen
+falls back to the legacy difficulty×area count so **every existing classic link
+without `pts` reproduces byte-identically**; two-pen derives an odd default from
+difficulty.
+**Why:** LinkedIn Zip happily threads 12+ points on 8×8 — the K↔grid coupling was
+an artificial limit. Higher ceilings also make large grids *cheaper* to generate
+(more waypoints → smaller unique-solution search).
+**Refs:** `trace.html` `loneMaxPoints()`, `pairMaxPerSnake()`, `effectivePoints()`,
+`pointsRange()`, `syncPointsUI()`, points-slider + `#pointsDice` wiring.
+
+### 2026-06-07 — [zip-game] Rectangular grids (ROWS×COLS, 5..9 each)
+**Decision:** Replaced the single square `SIZE` with `ROWS`×`COLS` (each 5–9),
+giving all 25 combinations 5×5 … 9×9. `SIZE` was removed entirely (not aliased)
+so any missed call site fails loudly rather than silently assuming square.
+Backward-compatible **size token** for URLs/logging/leaderboards: a square keeps
+its single-digit value (5–9, unchanged), a rectangle encodes as `rows*10+cols`
+(55–99, no collision) — see `sizeToken()` / `applySizeToken()`. So **existing
+square links, leaderboards, and logged attempts are byte-identical**; rectangles
+get a 2-digit `size` code (the server stores it as-is; insights/leaderboard
+grouping may want to learn the encoding later).
+**Why:** Rectangles still contain Hamiltonian paths and broaden the game cheaply.
+**Refs:** `trace.html` geometry refactor; grid `<select>` expanded to 25 options.
+
+### 2026-06-07 — [zip-game] Backbite generator for new grid configs
+**Decision:** Large/odd grids (esp. 9×9 = 81 cells) thrash the backtracking
+Hamiltonian search. Added a deterministic **backbite generator** (boustrophedon
+seed + seeded random backbite moves; O(N)/move, never fails) used for **all new
+configs (rectangles, or any dimension of 9)**. Legacy squares ≤8×8 keep the
+original DFS search, so their seeds/links reproduce exactly.
+**Why:** Reliable, fast, fully seed-deterministic path generation where the
+search-based generator timed out.
+**Refs:** `trace.html` `backbiteHamiltonian()`, branch in `generateHamiltonian()`.
+
+### 2026-06-07 — [zip-game] 9×9 is the unique-solution frontier (accepted limit)
+**Decision:** Kept 9×9 selectable but accept it is heavy. Proving a 9×9 puzzle
+*unique* requires exhausting an enormous path space; measured ~4/5 success at
+~9 s for higher point counts, and **low point counts on 9×9 are effectively
+infeasible**. Tiered the solver node cap (`area ≤ 64 → area·5000`, else
+`area·9000`) to bound the freeze, and `newPuzzle()` now re-rolls the seed up to
+3× on failure (fresh puzzles only — never a shared link) before the trivial
+snake fallback. 8×8 and below stay fast (8×8 low-K ≈ 7/8 in a few seconds).
+**Why:** Inherent cost — it's why LinkedIn's Zip stops at 8×8. The raised point
+ceiling mitigates it (users/auto can pick higher, cheaper counts).
+**Open:** if 9×9 proves annoying in practice, options are to exclude it or raise
+its minimum point count. Awaiting real-play feedback.
+**Refs:** `generateCandidate()` cap; `newPuzzle()` retry loop.
+
+### 2026-06-07 — [zip-game] Two-pen ("two snakes") validated; per-snake odd points
+**Decision:** The two-snake variant is complete. Generation uniqueness needs **no
+solver change**: on an odd grid with the centre waypoint pinned to the path
+midpoint, the existing classic enforcement already yields exactly one two-snake
+solution (verified with an independent single-path counter — 5×5/7×7 100%, and
+odd rectangles). Two-pen requires **both dimensions odd**. The points control is
+**per snake** and odd (see the point-count entry). URL `t=1`; precedence: explicit
+`t` wins, a shared seed with no `t` is classic, a bare visit restores preference.
+**Refs:** `trace.html` two-pen subsystem, `setupTwoPen()`, `canAddPen()`,
+`checkSolvedTwoPen()`, `pickWaypoints()` two-pen branch.
+
 ### 2026-06-06 — [cross-cutting] Flattened Claude-Project upload set is generated, not hand-maintained
 **Decision:** `flatten.py` (stdlib-only, repo root) generates the `flattened/`
 upload set from the live tree. Flattened names are
