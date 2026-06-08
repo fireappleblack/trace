@@ -5,7 +5,12 @@ flatten:end -->
 
 # Trace — Status & Resilience Review
 
-**Checkpoint: 2026-06-03** (updated from 2026-05-31; zip-game + deploy changes folded in)
+**Checkpoint: 2026-06-08** (zip-game **Application** section refreshed below).
+⚠️ The **Infrastructure** content (the Infrastructure half of §1, and §2–§6's
+infra items: TLS, nodes, storage, security, backups) is **platform-owned and
+still at the 2026-06-03 checkpoint** — notably the TLS-regressed / rate-limited
+note, whose window (2026-06-05) has since passed. Treat those as possibly stale
+and confirm with the platform workstream before relying on them.
 
 A snapshot of where the project stands, what's already resilient, where it
 can fail, and which fixes are worth making before they hit diminishing
@@ -16,6 +21,20 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-08):** A large client feature set landed and was
+  headless-validated (generation, uniqueness, win-conditions, point ranges,
+  randomiser invariants, classic regression): non-square **rectangular grids**
+  (all 25 of 5×5…9×9 via ROWS×COLS, with a backward-compatible `size` token so
+  square links/leaderboards stay byte-identical); **point count decoupled from
+  grid size** (one-pen total `5…⌊2√area⌋`; two-pen **odd points per snake**
+  `3…pairMax`; new `pts` URL param); the **two-snake "kissing" mode** (`t`) with
+  a **`diffshades`** colour-coding option (a flip regenerates a fresh puzzle, so
+  it can't be used as an untraceable difficulty cheat); **per-control 🎲 plus a
+  "Surprise me" full-randomiser** (every rolled value written to the URL); a
+  deterministic **backbite generator** for the new sizes; and a fix so a two-pen
+  snake that reaches the kiss **stays editable** (drag-back / Undo). 9×9 remains
+  the heavy unique-solution frontier. **Not yet browser-play-tested.** See the
+  2026-06-07/06-08 `[zip-game]` entries in `DECISIONS.md`.
 - **Zip-game & deploy (2026-06-03):** GHCR migration completed — image published
   to `ghcr.io/fireappleblack/trace`, pulled via the `ghcr-pull` imagePullSecret,
   with `deploy.sh` building/pushing/rolling versioned tags; side-loading and the
@@ -44,9 +63,26 @@ returns.
 **Application**
 - `trace.html` — single-file client: puzzle generator/solver, hints, retrace
   input, an optional cheat mode (solutions shown; attempts flagged and kept off
-  public leaderboards), adjustable path "wiggliness" (`w` URL parameter / main-UI
-  slider), consent gate, local SQLite-in-browser persistence, optional server
-  sync. Served by the Flask app (one canonical copy, no duplication).
+  public leaderboards), consent gate, local SQLite-in-browser persistence,
+  optional server sync. Served by the Flask app (one canonical copy, no
+  duplication).
+- **Puzzle variety / controls (main UI + URL params):** adjustable path
+  **wiggliness** (`w`) and **wall density** (`m`) sliders; **selectable grid** —
+  all 25 rectangles 5×5–9×9 (ROWS×COLS), encoded in a backward-compatible `size`
+  token (squares keep their single digit; rectangles use `rows*10+cols`);
+  **decoupled point count** (`pts`) — one-pen total `5…⌊2√area⌋`, two-pen **odd
+  points per snake** `3…pairMax`; a **two-snake "kissing" mode** (`t`, both grid
+  dims odd) with a **`diffshades`** binary colour option (off = both snakes'
+  numbers share one neutral shade, much harder; toggling regenerates); and
+  **per-control 🎲 randomisers + a "🎲 Surprise me"** full-randomise. Per the
+  settled rule, every randomised/rolled value is written back to the URL, so any
+  puzzle — including a surprise one — is shareable and reproducible.
+- **Generation:** legacy squares ≤8×8 keep the original backtracking DFS (their
+  seeds/links reproduce byte-identically); all new configs (rectangles, or any
+  9-dimension grid) use a deterministic, never-failing **backbite generator**.
+  9×9 (81 cells) is the unique-solution frontier — heavy at low point counts;
+  the solver node cap is tiered by area and `newPuzzle` re-rolls the seed up to
+  3× (fresh puzzles only) before a trivial fallback. ≤8×8 stays fast.
 - **Onboarding flow:** the real puzzle is generated up front but hidden; on load
   the player sees a **sample backdrop** (a finished example, or their last solve)
   so the puzzle can't be studied before the timer. The first tap reveals a small
@@ -237,6 +273,17 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
 ---
 
 ## 6. Outstanding setup tasks (separate from resilience)
+
+**Zip-game (application):**
+- **Browser play-test** of the new client features — confirm rectangle rendering,
+  two-snake visuals + the `diffshades` uniform shade reading as genuinely
+  ambiguous, the dice / "Surprise me" controls, and the 9×9 feel on a real
+  device. (All current validation is headless.)
+- **Decide the 9×9 strategy** — keep as-is, exclude it, or raise its minimum
+  point count — once it's been played. (See `DECISIONS.md` 2026-06-07 "9×9 is the
+  unique-solution frontier".)
+
+**Platform / other:**
 
 - **Re-issue TLS** (regressed 2026-06-03 — see §1): validate on staging now,
   then after the prod rate-limit clears (**2026-06-05 00:58 UTC**) flip the

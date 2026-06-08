@@ -2957,7 +2957,7 @@ function handleMove(x, y) {
   // ignored. No jumping or truncation, so a winding path that crosses near
   // itself won't lose its tail if your finger strays.
 }
-function handleEnd() { drawing = false; activePen = -1; }
+function handleEnd() { drawing = false; }   // keep activePen so Undo targets the last-touched snake
 
 // ═══ TWO-PEN ("two snakes kissing") subsystem ════════════════════════════
 // All gated by TWO_PEN; classic single-path play never enters any of this.
@@ -3057,6 +3057,13 @@ function handleStartTwoPen(x, y) {
     if (penPaths[pen].length && canAddPen(pen, cell)) {
       penPaths[pen].push(cell); activePen = pen; drawing = true;
       Attempts.recordMove(); refresh(); return;
+    }
+  }
+  // 4) Grab a snake whose head is the shared kiss, to drag it back and retrace.
+  //    Checked AFTER extend so tapping the kiss to COMPLETE the other snake wins.
+  if (ck === centreKey) {
+    for (const pen of [0, 1]) {
+      if (penHeadIsCentre(pen)) { activePen = pen; drawing = true; return; }
     }
   }
   // Anywhere else does nothing (no accidental truncation), matching classic.

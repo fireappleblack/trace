@@ -10,6 +10,8 @@ trace-server/deploy/.secrets.env
 *.secret.env
 
 # (handy general ignores too)
+flattened/*
+!flattened/flatten.cfg
 __pycache__/
 *.pyc
 *.db

@@ -30,12 +30,27 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
 
 ---
 
+### 2026-06-08 — [zip-game] Two-pen kissed snake stays editable (undo/retrace fix)
+**Decision:** A snake that has reached the shared centre ("kiss") must stay
+draggable and undoable; previously its path locked the moment it touched the
+kiss. Two behaviours changed: (1) you can now **grab a snake's head at the kiss
+and drag it back** to retrace — but this is checked *after* tap-to-extend, so
+tapping the kiss to **complete the other snake** still wins; (2) `handleEnd` no
+longer clears `activePen`, so the **Undo button targets the snake you last
+touched** instead of guessing by which pen is longer.
+**Why:** The lock was a playability bug — there was no way to correct a misplaced
+final move into the kiss. Ordering the centre-grab after extend preserves the
+finish-the-second-snake gesture; retaining `activePen` makes Undo predictable.
+**Refs:** `trace.html` `handleStartTwoPen()` (new branch 4, centre-head grab),
+`handleEnd()`, Undo handler. Verified through the real pointer handlers: grab +
+drag pops the kiss (path 13→12) and Undo removes it from the correct snake.
+
 ### 2026-06-07 — [zip-game] Two-pen "distinct shades" option (`diffshades`)
 **Decision:** New binary control + URL param **`&diffshades=true|false`** (two-pen
 only). `true` (default) keeps per-snake colour-coding (reddish Snake A / teal
 Snake B). `false` paints every number dot one neutral shade, so a "3" in Snake A
 is visually identical to the "3" in Snake B — the player must deduce which is the
-next point in each snake, which is much harder. Toggling **rolls a fresh puzzle on toggle**, since the setting changes effective difficulty. Precedence mirrors `t`: explicit
+next point in each snake, which is much harder. Toggling **rolls a fresh puzzle**, since the setting changes effective difficulty. Precedence mirrors `t`: explicit
 param wins, bare visit restores preference, shared two-pen link without it →
 default colour-coded. Drawn snake *paths* stay two-coloured (they show the
 player's own progress); only the numbered dots go uniform.
