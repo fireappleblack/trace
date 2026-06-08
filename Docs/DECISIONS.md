@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+     generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -29,6 +29,25 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
   decision under `decisions/`. Not needed yet.)*
 
 ---
+
+### 2026-06-08 — [cross-cutting] flatten.py re-stamps the block when content changes
+**Decision:** `flatten.py`'s `generated:` timestamp now tracks **last change**,
+not just first injection. On each run, if a file's body (the block itself
+ignored) differs from its mirrored copy under `flattened/`, the block's stamp is
+refreshed to the current run time; an unchanged file is still left
+byte-for-byte alone. A new `restamped` action/count is reported, the block
+format is unchanged (the same 4-line begin / repo-path / generated / end), and
+`--check` still flags an unflattened edit as drift (exit 1).
+**Why:** A correct-path block was previously preserved verbatim, so its stamp
+froze at first injection — e.g. the `Docs/*.md` blocks read 2026-06-06 while
+their content was already 2026-06-08. The stamp is only useful if it moves when
+the file does.
+**Note:** The first run on this version re-stamps every file whose body changed
+since its last flatten (those stale doc stamps included) and `flatten.py` itself;
+steady-state runs with no edits stay byte-stable.
+**Refs:** flatten.py `body_changed()`, `block_stripped()`, `ensure_comment(…,
+restamp)`; builds on DECISIONS.md 2026-06-06 [cross-cutting] "Flattened
+Claude-Project upload set is generated, not hand-maintained".
 
 ### 2026-06-08 — [zip-game] Two-pen kissed snake stays editable (undo/retrace fix)
 **Decision:** A snake that has reached the shared centre ("kiss") must stay
