@@ -16,7 +16,11 @@ files have to be renamed to avoid collisions. This script:
   2. For each file that should be uploaded, writes (or refreshes) a small,
      datetime-stamped comment block at the head of THAT SAME source file,
      recording its path relative to the repo root. The block is idempotent:
-     if a correct one is already present, the file is left byte-for-byte alone.
+     an UNCHANGED file is left byte-for-byte alone. But if the file's content
+     has changed since it was last flattened, the block's `generated:` stamp is
+     refreshed to the current run time, so the stamp tracks last-change rather
+     than only first-injection. ("Changed" = the body, with the block itself
+     ignored, differs from the mirrored copy under flattened/.)
   3. Mirrors the file into "<repo>/flattened/" under a collision-free flattened
      name (repo prefix + per-directory prefixes + original filename), copying
      only when the destination is missing or differs.
@@ -174,6 +178,20 @@ def find_block(lines: list[str]) -> tuple[int, int, str] | None:
     return (begin, end, recorded)
 
 
+def block_stripped(lines: list[str]) -> list[str]:
+    """Return the lines with the flatten block (and one trailing blank line)
+    removed, so two versions of a file can be compared on body alone —
+    independent of the block's timestamp."""
+    blk = find_block(lines)
+    if not blk:
+        return lines
+    b0, b1, _ = blk
+    after = b1 + 1
+    if after < len(lines) and lines[after].strip() == "":
+        after += 1
+    return lines[:b0] + lines[after:]
+
+
 # ───────────────────────────── preamble handling ───────────────────────────
 # Some lines MUST stay first (shebang, doctype, XML decl, coding cookie, YAML/MD
 # front-matter). The block is inserted immediately after them.
@@ -245,12 +263,37 @@ def write_text(path: Path, lines: list[str], eol: str, had_nl: bool, bom: str):
     path.write_bytes((bom + body).encode("utf-8"))
 
 
+def body_changed(src: Path, dest: Path) -> bool:
+    """True if src's body (ignoring its flatten block) differs from the already-
+    flattened copy at dest — i.e. the content changed since the last flatten.
+    A missing dest counts as changed (nothing to compare against yet)."""
+    if not dest.exists():
+        return True
+    s = read_text(src)
+    d = read_text(dest)
+    if s is None or d is None:
+        # Binary / undecodable: fall back to a raw byte comparison.
+        try:
+            return src.read_bytes() != dest.read_bytes()
+        except OSError:
+            return True
+    s_body = block_stripped(s[0].split("\n"))
+    d_body = block_stripped(d[0].split("\n"))
+    return s_body != d_body
+
+
 # ───────────────────────────── comment injection ───────────────────────────
 
-def ensure_comment(path: Path, relpath: str, when: str, dry_run: bool) -> str:
+def ensure_comment(path: Path, relpath: str, when: str, dry_run: bool,
+                   restamp: bool = False) -> str:
     """Ensure the file head carries a correct flatten block.
 
-    Returns one of: 'unchanged', 'inserted', 'updated', 'nocomment', 'binary'.
+    When a correct block already exists, the timestamp is preserved UNLESS
+    `restamp` is True (the caller has determined the body changed since the last
+    flatten), in which case only the `generated:` stamp is refreshed.
+
+    Returns one of: 'unchanged', 'restamped', 'inserted', 'updated',
+    'nocomment', 'binary'.
     """
     style_key = style_for(path)
     if style_key == "none":
@@ -269,7 +312,15 @@ def ensure_comment(path: Path, relpath: str, when: str, dry_run: bool) -> str:
     if existing:
         b0, b1, recorded = existing
         if recorded == relpath:
-            return "unchanged"
+            if not restamp:
+                return "unchanged"
+            # Body changed since last flatten — refresh ONLY the timestamp,
+            # leaving the rest of the file byte-for-byte.
+            new_block = render_block(style_key, relpath, when)
+            new_lines = lines[:b0] + new_block + lines[b1 + 1:]
+            if not dry_run:
+                write_text(path, new_lines, eol, had_nl if had_nl else True, bom)
+            return "restamped"
         # Path is wrong (file moved): strip old block + one trailing blank.
         after = b1 + 1
         if after < len(lines) and lines[after].strip() == "":
@@ -530,8 +581,8 @@ def main(argv=None) -> int:
     ignored = git_ignored_set(repo, candidates)
 
     # 3) Process.
-    stats = {"unchanged": 0, "inserted": 0, "updated": 0, "copied": 0,
-             "flat-unchanged": 0, "skipped": 0, "ignored": 0}
+    stats = {"unchanged": 0, "restamped": 0, "inserted": 0, "updated": 0,
+             "copied": 0, "flat-unchanged": 0, "skipped": 0, "ignored": 0}
     nocomment: list[str] = []
     binary: list[str] = []
     drift = False
@@ -559,6 +610,11 @@ def main(argv=None) -> int:
                 print(f"  skipped (dir)   {rel}")
             continue
 
+        # Flattened destination — also the reference for "did the body change?".
+        flat_name = flattened_name(cfg.repo_prefix, dir_prefix, src.name)
+        expected_flat.add(flat_name)
+        dest = out_dir / flat_name
+
         # Include decision. A correct/any existing block => already included.
         rt = read_text(src)
         has_block = False
@@ -577,9 +633,12 @@ def main(argv=None) -> int:
                 stats["skipped"] += 1
                 continue
 
+        # Refresh the timestamp when the body changed since the last flatten.
+        restamp = body_changed(src, dest)
+
         # Ensure the path comment in the SOURCE.
-        action = ensure_comment(src, rel, when, args.dry_run)
-        if action in ("inserted", "updated"):
+        action = ensure_comment(src, rel, when, args.dry_run, restamp)
+        if action in ("inserted", "updated", "restamped"):
             drift = True
         if action == "nocomment":
             nocomment.append(rel)
@@ -589,9 +648,6 @@ def main(argv=None) -> int:
             stats[action] += 1
 
         # Mirror into flattened/.
-        flat_name = flattened_name(cfg.repo_prefix, dir_prefix, src.name)
-        expected_flat.add(flat_name)
-        dest = out_dir / flat_name
         new_bytes = src.read_bytes()  # post-injection content
         if dest.exists() and dest.read_bytes() == new_bytes:
             stats["flat-unchanged"] += 1
@@ -631,7 +687,7 @@ def main(argv=None) -> int:
     print(f"repo={cfg.repo_name!r} prefix={cfg.repo_prefix!r}  output={args.output_dir}/")
     print("  comments:  "
           f"{stats['inserted']} inserted, {stats['updated']} updated, "
-          f"{stats['unchanged']} unchanged")
+          f"{stats['restamped']} re-stamped, {stats['unchanged']} unchanged")
     print("  flattened: "
           f"{stats['copied']} copied, {stats['flat-unchanged']} unchanged")
     print(f"  skipped:   {stats['skipped']} (cfg/dir), {stats['ignored']} (gitignore)")
