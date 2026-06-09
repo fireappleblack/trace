@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/IDEAS.md
-     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+     generated: 2026-06-09T11:54:50Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Ideas / backlog
@@ -26,6 +26,38 @@ Refs: `trace.html` randomiser IIFE (`wiggleDice`/`wallsDice`/`gridDice`/
 
 Possible follow-ups: a Mode 🎲 (currently only via Surprise, since a binary toggle
 is odd as a die); a brief "rolled: …" toast so players see what changed.
+
+## Generation tuning — "Really Wiggly" fix + walls slider — DONE (2026-06-06)
+
+Raised 2026-06-03; shipped 2026-06-06. The cluster of generation-control ideas
+that used to live here has landed — see the `2026-06-06 [zip-game]` entries in
+`DECISIONS.md` for the specifics.
+
+- **"Really Wiggly" (`w=4`) predictability — fixed.** At the top of the range the
+  path used to bend at nearly every opportunity, which paradoxically made it
+  *easier*: maximal turn-ratio collapsed the branching factor, so "always turn"
+  became a near-deterministic winning heuristic (e.g. the old
+  `…/?seed=4l62ge&size=8&difficulty=fiendish&w=4` was solvable by wiggling at
+  every step). High `w` is now tuned so it's genuinely harder rather than just
+  bendier, and Really-Wiggly remains a user-chosen option (a choice, not a
+  default). (DECISIONS 2026-06-06 "Really Wiggly fix".)
+- **Walls slider — shipped.** An independent difficulty lever, separate from
+  wiggliness, ranging from **"no walls"** to **"practically a maze (amaze!
+  amaze!)"**, as a first-class URL parameter with its own main-UI slider (same
+  pattern as `w`). Walls are placed so the guaranteed Hamiltonian-path solvability
+  invariant is preserved — no required transition is ever walled off — which the
+  surprise-draw validation above exercises. (DECISIONS 2026-06-06 "Walls slider".)
+- **Per-control "chef's choice" + "restaurant decides" randomisers — shipped**,
+  covered by the randomisers section above (DONE 2026-06-07).
+
+**Retained principle (settled 2026-06-03): randomisers always write their rolled
+values into the URL.** Every generated puzzle — manual, "chef's choice", or
+"surprise" — resolves to concrete parameter values and calls the same `updateURL`
+path, so the URL *is* the puzzle and nothing is ever ephemeral/unshareable. The
+cost of writing rolled values back is negligible, whereas a puzzle that *can't* be
+shared breaks the core expectation and would disappoint. This remains the rule for
+any future generation control: roll values → write to URL → generate from them
+(never the reverse).
 
 ## Onboarding backdrop — "other" image option (3c)
 
@@ -68,54 +100,10 @@ behind the admin UI for editing.
   `(seed, size, difficulty)`. Two *independently* generated identical base
   seeds with different `w` would share a board — a ~1-in-2-billion collision, so
   not worth a schema change now, but noting it. If ever wanted, add `wiggle` to
-  the attempts key + daily metadata.
+  the attempts key + daily metadata. *(Note: the walls parameter, now shipped,
+  has the same property — if the leaderboard key is ever revisited, fold `walls`
+  in alongside `wiggle`.)*
 - **Last-puzzle backdrop for returning users.** The backdrop only shows during
   onboarding (new / un-consented users). Could optionally surface the
   last-solve snapshot elsewhere (e.g. a small "your last solve" flourish), but
   not obviously worth it.
-
-## Generation tuning — fix "Really Wiggly", add a walls slider, add randomisers
-
-Raised 2026-06-03. A cluster of related generation-control ideas.
-
-- **"Really Wiggly" (`w=4`) is too predictable — the real bug to fix.** At the
-  top of the range the path bends at nearly every opportunity, which paradoxically
-  makes it *easier*: the solver can just take every available turn and walk it.
-  Example: `…/?seed=4l62ge&size=8&difficulty=fiendish&w=4` was solvable by
-  wiggling at every step. The failure mode: maximal turn-ratio collapses the
-  branching factor (few legal non-turning moves left), so "always turn" becomes a
-  near-deterministic winning heuristic. Fixes to explore — cap the top of the
-  range below pathological wiggliness; or make high `w` target a turn-ratio
-  *band* rather than "as wiggly as possible"; or inject some straight runs so
-  "always turn" stops being a valid strategy. **Decision for now:** keep
-  Really-Wiggly as a user-chosen option (it's a choice, not a default), but treat
-  the predictability as a real defect to address.
-- **New "walls" slider** — the other obvious difficulty lever, independent of
-  wiggliness. Range from **"no walls"** to **"practically a maze (amaze! amaze!)"**.
-  Likely a first-class URL parameter alongside `w` (e.g. a `walls`/`m` param) with
-  its own main-UI slider, same pattern as the wiggliness control. Open question:
-  how walls interact with guaranteed-solvability of the Hamiltonian path (must not
-  wall off a required transition).
-- **"Chef's choice" per control** — a button next to each slider/drop-down (grid
-  size, difficulty, wiggliness, walls) that picks *that one* parameter at random.
-  Leaves the others as set.
-- **"Chef's gone home; let the restaurant decide"** *(working name — may be
-  renamed)* — a single button that randomises **every** parameter at once (grid
-  size, difficulty, wiggliness, wall proliferation) on each press, for a fully
-  surprise puzzle.
-
-Implementation notes when this is picked up: walls + a random-all button mean the
-URL needs to round-trip every generation parameter (already true for `seed`,
-`size`, `difficulty`, `w`; add the walls param), so a randomised puzzle is still
-shareable/reproducible.
-
-**Settled (2026-06-03): randomisers always write their rolled values into the
-URL.** Every generated puzzle — including anything produced by a "chef's choice"
-or "restaurant decides" press — must be fully shareable/reproducible. The cost of
-writing the rolled values back is negligible programmatically and conceptually,
-whereas a puzzle that *can't* be shared breaks the expectation that the URL *is*
-the puzzle, and would disappoint. So the randomisers resolve to concrete
-parameter values and call the same `updateURL` path as the manual controls — no
-ephemeral/unshareable generation states. (Practical consequence: a randomise
-button rolls values, writes them to the URL, then generates from them — not the
-reverse.)

@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
+     generated: 2026-06-09T11:54:50Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log

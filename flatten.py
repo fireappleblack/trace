@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # flatten:begin
 # repo-path: flatten.py
-# generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
+# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
 # flatten:end
 
 """
