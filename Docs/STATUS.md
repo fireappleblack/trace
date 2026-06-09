@@ -1,16 +1,15 @@
 <!-- flatten:begin
      repo-path: Docs/STATUS.md
-     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+     generated: 2026-06-09T04:53:38Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Status & Resilience Review
 
-**Checkpoint: 2026-06-08** (zip-game **Application** section refreshed below).
-⚠️ The **Infrastructure** content (the Infrastructure half of §1, and §2–§6's
-infra items: TLS, nodes, storage, security, backups) is **platform-owned and
-still at the 2026-06-03 checkpoint** — notably the TLS-regressed / rate-limited
-note, whose window (2026-06-05) has since passed. Treat those as possibly stale
-and confirm with the platform workstream before relying on them.
+**Checkpoint: 2026-06-08** — both the zip-game **Application** section and the
+**Infrastructure** sections refreshed. Note: the newly-built MariaDB, backups,
+WordPress (LEMP), and Cloudflare manifests are **authored but not yet
+deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
+treat their cluster state as *pending* until deployed.
 
 A snapshot of where the project stands, what's already resilient, where it
 can fail, and which fixes are worth making before they hit diminishing
@@ -21,6 +20,13 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Platform (2026-06-08):** Authored the shared **MariaDB** StatefulSet (tuned
+  for the shared case), the **off-cluster backups** stack (logical dumps +
+  Longhorn target + restore helper), the **WordPress (LEMP)** per-site stack, and
+  the **Cloudflare** edge pattern (DNS-01 issuer, origin lockdown, outage
+  fallback). All **manifests-only so far — not yet deployed.** The TLS prod-flip
+  procedure was also corrected to `cmctl renew` (never secret-deletion). See the
+  2026-06-05/06-06 `[platform]` entries in `DECISIONS.md`.
 - **Zip-game (2026-06-08):** A large client feature set landed and was
   headless-validated (generation, uniqueness, win-conditions, point ranges,
   randomiser invariants, classic regression): non-square **rectangular grids**
@@ -43,9 +49,9 @@ returns.
   and an onboarding **placeholder backdrop** (the board no longer shows the real
   puzzle pre-consent — a sample/last-solve is shown instead). The server's
   additive ADD COLUMN migration now includes `cheated`, so it self-applies on
-  deploy. ⚠️ **TLS regressed this session** (see §1): the edge is back on
-  Traefik's default self-signed cert and Let's Encrypt **production** is
-  rate-limited until 2026-06-05 00:58 UTC.
+  deploy. **TLS regressed during that session** (the edge fell back to Traefik's
+  self-signed cert after a duplicate-certificate rate-limit); **recovered
+  2026-06-08** once the window passed and cert-manager re-issued — see §1/§6.
 - **App (2026-05-31):** TLS brought up across three domains on one cert; the DB
   password moved out of git (gitignored secrets file + `apply-db.sh`); all
   player-facing copy moved into the database with a new staged onboarding flow.
@@ -128,16 +134,35 @@ returns.
 - Images: published to **GHCR** (`ghcr.io/fireappleblack/trace`), pulled via the
   `ghcr-pull` imagePullSecret; `deploy.sh` builds/pushes/rolls versioned tags.
   Side-loading and the self-hosted registry are retired.
-- TLS: cert-manager (v1.20.1) + Traefik + Let's Encrypt (HTTP-01), covering
-  **three** hostnames on one SAN cert — `zip.hsabren.co.uk`,
-  `zip.derangedimagination.com`, `zip.saidtheape.com`. ⚠️ **Currently regressed
-  (2026-06-03):** the edge is serving Traefik's default self-signed cert; Let's
-  Encrypt **production** is rate-limited (duplicate-certificate limit, 5 per
-  exact SAN set per 168h) until **2026-06-05 00:58 UTC**. The HTTP-01 path is
-  proven (5 prior issuances), so recovery is: validate on **staging** now, then
-  flip to prod **once** after the window clears. Auto-renewal resumes once a
-  trusted cert is re-issued. *(TLS issuers are Infrastructure-owned — platform
-  workstream.)*
+- TLS: cert-manager (v1.20.1) + Traefik + Let's Encrypt, covering **three**
+  hostnames on one SAN cert — `zip.hsabren.co.uk`,
+  `zip.derangedimagination.com`, `zip.saidtheape.com`. The 2026-06-03
+  duplicate-certificate rate-limit (5 per exact SAN set per 168h) **expired
+  2026-06-06 10:23 UTC**; cert-manager's backoff should have re-issued the
+  trusted production cert automatically — **confirm with `kubectl -n trace get
+  certificate trace-tls`** (expect `READY=True`, issuer Let's Encrypt prod).
+  **Re-issue / staging→prod flip procedure: change the issuer annotation, then
+  `cmctl renew` — NEVER delete the cert secret** (a double-trigger burned two
+  rate-limit slots on 2026-06-05; see DECISIONS 2026-06-05 and DEPLOYMENT §5/§7).
+  Migration to **DNS-01 via Cloudflare** is decided (DECISIONS 2026-06-06) and
+  will replace the HTTP-01 mechanism. *(TLS issuers are Infrastructure-owned —
+  platform workstream.)*
+- **Shared MariaDB** *(authored, not yet deployed)*: one MariaDB StatefulSet on
+  Longhorn for WordPress tenants (a DB + least-privilege user per site), tuned
+  for the shared case (`innodb_buffer_pool_size` 256M, `max_connections` 60).
+  Distinct from the app's Postgres. *(platform/mariadb/ — DECISIONS 2026-06-05.)*
+- **WordPress (LEMP)** *(authored, not yet deployed)*: one two-container pod per
+  site (Nginx + PHP-FPM) on the shared MariaDB; `pm.max_children` bounds per-site
+  DB connections. *(wordpress/ — DECISIONS 2026-06-06.)*
+- **Off-cluster backups** *(authored, not yet deployed/restore-tested)*: a nightly
+  CronJob doing `pg_dump` + per-DB `mariadb-dump` → Oracle Object Storage, plus a
+  Longhorn backup target and a restore helper. *(platform/backups/ — DECISIONS
+  2026-06-05.)*
+- **Cloudflare edge** *(decided/authored, not yet cut over)*: front public sites
+  (CDN/WAF/DDoS), lock the origin to Cloudflare IPs, migrate cert-manager to
+  DNS-01 via Cloudflare, with a documented outage fallback; origin keeps a
+  browser-trusted LE cert (not Origin CA) for clean bypass. *(platform/cloudflare/
+  — DECISIONS 2026-06-06.)*
 
 ---
 
@@ -157,7 +182,8 @@ returns.
 - **Self-healing** — readiness/liveness probes on `/api/health` restart or
   drain unhealthy pods automatically.
 - **TLS auto-renewal** — cert-manager renews Let's Encrypt certs without
-  intervention. *(Paused until the prod cert is re-issued — see §1.)*
+  intervention. *(Resumed once the prod cert was re-issued after the 2026-06-06
+  rate-limit window — confirm per §1.)*
 
 ---
 
@@ -166,11 +192,13 @@ returns.
 Ordered roughly by stakes.
 
 ### Data / persistence — **highest stakes**
-- **No backups.** Longhorn replication protects against *hardware/node* loss,
-  but **not** against a bad migration, logical corruption, or an accidental
-  `delete pvc` / namespace deletion — any of which still loses all users,
-  attempts, and leaderboards permanently. Off-cluster backups remain the single
-  most important gap (see §4 #1).
+- **Backups authored but not yet deployed.** Longhorn replication protects
+  against *hardware/node* loss, but **not** a bad migration, logical corruption,
+  or an accidental `delete pvc` / namespace deletion — any of which still loses
+  all users, attempts, and leaderboards. The off-cluster backups stack now
+  **exists** (platform/backups/) but is **not yet deployed and has no tested
+  restore**, so this gap is *closing, not closed*. Deploying it and running one
+  restore is the top remaining task (see §4 #1).
 - **Both Longhorn replicas live on the same two nodes.** Replication survives
   *one* node failing, but losing both nodes (or Longhorn-level data loss)
   still destroys the data. Only an off-cluster backup covers this.
@@ -190,7 +218,8 @@ Ordered roughly by stakes.
   node is down, the site is unreachable even though the worker can now also
   serve on 80/443. The three domains share one SAN cert, so they rise and fall
   together (and a DNS lapse on any one can stall renewal of the shared cert).
-  A second A record → the worker is now genuinely useful (§4 #8).
+  A second A record → the worker is now genuinely useful (§4 #8); the planned
+  **Cloudflare** front (proxying both node IPs) also addresses this once cut over.
 - **Traefik** typically runs as a single replica in k3s; brief ingress outage
   if its node fails, until it reschedules.
 
@@ -211,7 +240,10 @@ Ordered roughly by stakes.
 - **Secrets aren't encrypted at rest** by default in k3s — anyone with node or
   datastore access can read the Postgres password.
 - **No app-level auth or rate limiting.** The API is anonymous and public;
-  `/api/users` and `/api/attempts` could be spammed.
+  `/api/users` and `/api/attempts` could be spammed. The planned **Cloudflare**
+  edge (WAF + rate-limiting) is the intended mitigation for the public sites, and
+  an **egress NetworkPolicy** for the WordPress tenant is planned to contain a
+  compromised tenant (DECISIONS 2026-06-06).
 
 ### Operational
 - **Manual deploys** (build → push → rollout). Fine for one maintainer; no
@@ -239,7 +271,7 @@ Ordered roughly by stakes.
 
 | # | Fix | Why | Effort |
 |---|-----|-----|--------|
-| 1 | **Off-cluster backups** — logical `pg_dump` (and `mysqldump` / mail export once those land) to Oracle Object Storage on a CronJob, plus a Longhorn backup target to the same bucket, with one tested restore | Longhorn covers node loss; this covers corruption, bad migrations, and accidental deletion — the worst remaining outcome | Low–med |
+| 1 | **Deploy the off-cluster backups** — the manifests now exist (platform/backups/); remaining is to deploy the CronJob, point it at Object Storage, and **run one tested restore** | Longhorn covers node loss; this covers corruption, bad migrations, and accidental deletion — the worst remaining outcome | Low |
 | 2 | ~~Keep the real DB password out of git~~ — **DONE**: gitignored `.secrets.env` + `apply-db.sh` create the Secret out-of-band. (Rotate the password if it was committed earlier.) | Prevents credential leak via the repo | — |
 | 3 | **Restrict SSH (22)** to your own source IP in the Oracle security list (6443 + k3s ports already private-subnet-only; RustDesk ports already closed) | Closes the last world-open port | Low |
 | 4 | **Enable k3s secrets encryption at rest** (`--secrets-encryption`) | Sensible on public cloud VMs | Low |
@@ -248,9 +280,11 @@ Ordered roughly by stakes.
 | 7 | **Watch disk usage** — both node boot disks and aggregate Longhorn volume usage | Avoids a full-disk outage going unnoticed | Near-zero |
 | 8 | *(Optional)* second DNS A record → worker node | Real redundancy now that both nodes bind 80/443 | Low |
 
-The clear priority is **#1**. Everything below it is good hygiene; #1 is the
-difference between "annoying outage" and "everything is gone." Longhorn has
-narrowed that gap (node loss is now survivable) but has **not** closed it.
+The clear priority is still **#1** — but it is now *deploy + test* the backups
+that already exist, not build them. Everything below it is good hygiene; #1 is
+the difference between "annoying outage" and "everything is gone." Longhorn has
+narrowed that gap (node loss is now survivable) but has **not** closed it until
+backups are actually running and a restore has been proven.
 
 ---
 
@@ -263,7 +297,10 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
   production, overkill for two nodes you control.
 - **Full observability stack** (Prometheus/Grafana/Loki) — an external uptime
   check gives 90% of the value for ~1% of the effort.
-- **NetworkPolicies / service mesh** — negligible benefit at this scale.
+- **Service mesh** — negligible benefit at this scale. *(NetworkPolicies are no
+  longer wholly off the table: an **egress** policy for the WordPress tenant is
+  planned as part of the Cloudflare-era hardening (DECISIONS 2026-06-06), since
+  the edge can't contain a compromised tenant's outbound traffic.)*
 - **CI/CD pipeline** — worthwhile only if deploy frequency rises; `deploy.sh`
   (now on GHCR) is enough for now.
 - **Sealed Secrets / SOPS / Vault** — the gitignored-file + out-of-band Secret
@@ -285,10 +322,13 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
 
 **Platform / other:**
 
-- **Re-issue TLS** (regressed 2026-06-03 — see §1): validate on staging now,
-  then after the prod rate-limit clears (**2026-06-05 00:58 UTC**) flip the
-  Ingress to `letsencrypt-prod` and delete `trace-tls` **once** to trigger a
-  single trusted issuance. *(Was previously live with trusted prod certs.)*
+- **Confirm TLS recovered** (regressed 2026-06-03 — see §1): the prod rate-limit
+  window passed (**2026-06-06 10:23 UTC**) and cert-manager should have
+  auto-issued the trusted cert — verify `kubectl -n trace get certificate
+  trace-tls` shows `READY=True`. **If a re-issue is ever needed, change the
+  issuer annotation then `cmctl renew trace-tls -n trace` — NEVER delete the
+  secret** (DECISIONS 2026-06-05; DEPLOYMENT §5/§7). The DNS-01-via-Cloudflare
+  migration is the next planned TLS change (DECISIONS 2026-06-06).
 - Add a safe **HTTP→HTTPS redirect** once the cert is stable again (a global
   redirect added earlier would have broken the ACME HTTP-01 challenge).
 - ~~Complete the **GHCR migration**~~ — **DONE (2026-06-03):** image on
@@ -298,7 +338,13 @@ narrowed that gap (node loss is now survivable) but has **not** closed it.
   `ui_text` can be edited by an admin without DB write access or code changes
   (interim method is direct SQL). *(Reminder carried forward.)*
 - **Restrict SSH (22)** to your source IP (also §4 #3).
+- **Deploy the new platform stacks** (manifests authored 2026-06-08, not yet on
+  the cluster): the shared **MariaDB**, the **backups** CronJob (then run the one
+  tested restore — §4 #1), and the **WordPress (LEMP)** per-site stack.
+- **Cut over to Cloudflare**: onboard the sites, migrate cert-manager to
+  **DNS-01 via Cloudflare**, lock the origin to Cloudflare IPs, and rehearse the
+  outage bypass once (platform/cloudflare/ — DECISIONS 2026-06-06).
 - *(Optional, performance)* tune Postgres for the small footprint
   (`shared_buffers` 32–64 MB, `work_mem` 4 MB, `max_connections` 20–30) and keep
-  the app's connection pool small — to be folded in alongside the shared-MariaDB
-  build.
+  the app's connection pool small. *(The shared MariaDB is already tuned —
+  DECISIONS 2026-06-05.)*

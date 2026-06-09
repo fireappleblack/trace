@@ -1,11 +1,11 @@
 <!-- flatten:begin
      repo-path: Docs/RESPONSIBILITY.md
-     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+     generated: 2026-06-09T05:05:40Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Responsibility & Ownership
 
-**Last updated:** 2026-06-04
+**Last updated:** 2026-06-08
 
 This repo is no longer "the zip game" — it's becoming "the cluster," with the
 zip game, WordPress, a shared MariaDB, and a mail server as co-tenants of one
@@ -50,7 +50,11 @@ clobbering each other's work.
 | `STATUS.md`, `DEPLOYMENT.md`, `RESPONSIBILITY.md`, `DECISIONS.md` | Shared | Coordinate edits (§4); `DECISIONS.md` is append-only (§4) |
 | `IDEAS.md` | Zip-game dev | Backlog / parking-lot (uncommitted ideas) — distinct from `STATUS.md` (live) and `DECISIONS.md` (settled). Currently Trace-only; make it shared + tagged like `DECISIONS.md` if platform ideas start landing |
 | `.gitignore`, `.dockerignore` | Shared | Coordinate edits |
-| *(future)* shared MariaDB, mail (Stalwart), WordPress templates, backup CronJob | **Infrastructure** | Land under `platform/` and `wordpress/` (§3) |
+| `platform/mariadb/` | **Infrastructure** | Shared MariaDB (StatefulSet, tuning, apply script) — a DB + least-priv user per WordPress tenant. *Authored 2026-06-08; not yet deployed.* |
+| `platform/backups/` | **Infrastructure** | Cross-cutting off-cluster backups (`pg_dump` + `mariadb-dump` → Object Storage, Longhorn target, restore helper). *Authored; not yet deployed/restore-tested.* |
+| `platform/cloudflare/` | **Infrastructure** | Cloudflare edge pattern: DNS-01 issuer, onboarding/bypass scripts, origin lockdown, outage fallback runbook. *Authored; not yet cut over.* |
+| `wordpress/` | **Infrastructure** | WordPress (LEMP) per-site stack — `lemp-base.yaml`, `site-template.yaml`, `apply-site.sh`. *Authored; not yet deployed.* |
+| *(future)* mail (Stalwart) | **Infrastructure** | Lands under `platform/mail/` (§3) |
 
 **Rule of thumb:** if more than one tenant depends on it, it's
 **Infrastructure**. If only the zip game uses it, it's **Zip-game dev** — even
@@ -60,9 +64,11 @@ if it's a database or an Ingress.
 
 ## 3. Directory layout (shared-infra split — begun in v0.3.0)
 
-The split is under way. `cluster-issuers.yaml` lives in `platform/`; the
-subdirectories below are **additive** as MariaDB, mail, and WordPress land —
-**no further file moves are required**, only additions.
+The split is well under way. `cluster-issuers.yaml`, the shared **MariaDB**,
+**backups**, the **Cloudflare** edge, and the **WordPress (LEMP)** templates now
+live under `platform/` and `wordpress/` (authored 2026-06-08; mail is still to
+come). The layout is **additive** — **no further file moves are required**, only
+additions.
 
 ```
 /
@@ -74,13 +80,16 @@ subdirectories below are **additive** as MariaDB, mail, and WordPress land —
 │       └── apply-db.sh .secrets.env.example .gitignore-snippet deploy.sh
 ├── platform/                       # SHARED INFRA (infrastructure)
 │   ├── cluster-issuers.yaml        # moved here in the v0.3.0 split
-│   ├── mariadb/                    # shared MariaDB (future)
+│   ├── mariadb/                    # shared MariaDB (authored 2026-06-08)
+│   ├── backups/                    # off-cluster pg_dump/mariadb-dump + Longhorn (authored)
+│   ├── cloudflare/                 # edge: DNS-01 issuer, onboarding/bypass, FALLBACK (authored)
 │   ├── mail/                       # Stalwart (future)
-│   ├── backups/                    # cross-cutting pg_dump/mysqldump/Longhorn CronJob (future)
 │   └── ingress/                    # conventions, middleware e.g. HTTP->HTTPS redirect (future)
 ├── wordpress/                      # SHARED INFRA (infrastructure)
-│   └── site-template.yaml          # per-site templated manifest (future)
-└── STATUS.md DEPLOYMENT.md RESPONSIBILITY.md DECISIONS.md IDEAS.md   # shared docs
+│   ├── lemp-base.yaml              # shared Nginx vhost + PHP-FPM pool (authored)
+│   ├── site-template.yaml          # per-site templated manifest (authored)
+│   └── apply-site.sh               # provision DB+user, render & apply (authored)
+└── Docs/                           # shared docs: STATUS DEPLOYMENT RESPONSIBILITY DECISIONS IDEAS
 ```
 
 ---

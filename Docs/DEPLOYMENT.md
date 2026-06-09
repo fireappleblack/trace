@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DEPLOYMENT.md
-     generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+     generated: 2026-06-09T05:05:40Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Deployment — Canonical Process
@@ -13,7 +13,7 @@ flatten:end -->
 > For *who owns which files* across the parallel workstreams, see
 > **`RESPONSIBILITY.md`**.
 >
-> **Last updated:** 2026-06-05
+> **Last updated:** 2026-06-08
 
 ---
 
@@ -148,6 +148,11 @@ first switching to GHCR, **apply the manifest once** so the pull secret lands
 kubectl apply -f trace-server/deploy/postgres.yaml     # 2. DB (StatefulSet, longhorn PVC)
 kubectl apply -f trace-server/deploy/trace-k8s.yaml    # 3. app + Service + Ingress
 kubectl apply -f platform/cluster-issuers.yaml         # 4. shared TLS issuers (if not already)
+
+# Shared platform stacks (each has its own apply script + README — see §4b):
+./platform/mariadb/apply-mariadb.sh                    # 5. shared MariaDB (out-of-band root secret)
+./platform/backups/apply-backups.sh                    # 6. backups CronJob (then RUN a test restore)
+./wordpress/apply-site.sh <slug> <hostname>            # 7. a WordPress (LEMP) site
 ```
 
 - **`./apply-db.sh`** — creates the Postgres credentials `Secret` in the `trace`
@@ -156,7 +161,7 @@ kubectl apply -f platform/cluster-issuers.yaml         # 4. shared TLS issuers (
   by the shell). The real password never lives in a committed manifest.
 - **`postgres.yaml`** — the zip game's dedicated Postgres `StatefulSet` (1
   replica) + `Service`, on a Longhorn PVC. The app's own DB, distinct from the
-  future shared MariaDB.
+  shared MariaDB (`platform/mariadb/`, §4b).
 - **`trace-k8s.yaml`** — the app `Deployment` (2 replicas), `Service`, and the
   `Ingress` for the three `zip.*` hosts. The Ingress carries
   `ingressClassName: traefik`, a `tls:` block naming secret `trace-tls`, and the
@@ -168,9 +173,46 @@ Then run the cert flow (§5).
 
 ---
 
+## 4b. Platform stacks (MariaDB, backups, WordPress, Cloudflare)
+
+Each shared stack is self-contained, with its own out-of-band secret helper and
+a README carrying the detail. Order: **MariaDB → backups** (re-run after MariaDB
+so it picks up the new DB) **→ WordPress** sites. Cloudflare is a separate
+cut-over (§5). *(All authored 2026-06-08; deploy when ready.)*
+
+- **Shared MariaDB** — `cp platform/mariadb/_secrets_env.example
+  platform/mariadb/.secrets.env` (set the root password), then
+  `./platform/mariadb/apply-mariadb.sh`. A StatefulSet on Longhorn, tuned for the
+  shared case (`max_connections` 60). See `platform/mariadb/README.md`.
+- **Backups** — set `platform/backups/.secrets.env` (OCI S3 keys), build/push the
+  tools image, then `./platform/backups/apply-backups.sh`. Protects Postgres
+  immediately and picks up MariaDB once its secret exists. **Run one manual job
+  + a tested restore before trusting it** (`platform/backups/restore.sh`). See
+  `platform/backups/README.md`.
+- **WordPress (LEMP)** — `./wordpress/apply-site.sh <slug> <hostname>` provisions
+  a scoped DB+user on the shared MariaDB, generates the per-site secret, and
+  applies a two-container (Nginx + PHP-FPM) pod. See `wordpress/README.md`.
+- **Cloudflare edge** — onboarding, origin lockdown, and the DNS-01 cert
+  migration are their own cut-over; see `platform/cloudflare/README.md`,
+  `platform/cloudflare/FALLBACK.md`, and §5.
+
+All stacks: every PVC sets `storageClassName: longhorn` explicitly; every secret
+is created out-of-band (never committed).
+
+---
+
 ## 5. TLS issuance (staging -> prod)
 
 The Ingress ships annotated `letsencrypt-staging`. Prove it, then flip.
+
+> **Migration note (decided 2026-06-06):** once sites move behind Cloudflare,
+> issuance switches to **DNS-01 via Cloudflare**
+> (`platform/cloudflare/cloudflare-dns01-issuer.yaml`) — no inbound port 80, so
+> the origin can be locked to Cloudflare IPs, and it retires the rate-limit
+> footguns. The HTTP-01 flow below stays current **until** that cut-over; after
+> it, the `letsencrypt-staging`/`-prod` issuers are replaced by
+> `letsencrypt-dns01-staging`/`-prod` (same `cmctl renew` discipline, never
+> secret-deletion). See `platform/cloudflare/README.md` and DECISIONS 2026-06-06.
 
 ```
 # DNS for ALL three SANs must resolve to a node public IP first:
