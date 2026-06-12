@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-09T11:54:50Z by flatten.py — do not edit this block
+     generated: 2026-06-12T22:19:14Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -29,6 +29,9 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
   decision under `decisions/`. Not needed yet.)*
 
 ---
+
+### 2026-06-12 [zip-game] — Blanked-cell symmetry-breaking; deterministic generation
+Added blanked-off cells to break board symmetry (no twin solutions from rotation/reflection). One-pen: one blank in the bottom-left quadrant (bottom ⌊R/2⌋ rows × left ⌊C/2⌋ cols), restricted to even (r+c) on odd×odd (mandatory for Hamiltonicity), and off the anti-diagonal on squares unless that empties the set (5×5 keeps a harmless residual anti-diagonal symmetry; uniqueness is solver-enforced regardless). Two-pen: fixed bottom-left-corner blank + one rolled X; the corner alone breaks every symmetry that moves it, so X must (a) avoid the other three corners — a symmetric blank-pair re-imposes a reflection/180° — and (b) on squares, avoid the anti-diagonal, the one reflection that fixes the corner. Two blanks keep two-pen's playable count odd (centre kiss survives). Rolled blank pinned to URL as bx (cell index); shared links reproduce. Breaks byte-identical legacy reproduction for all grids (accepted: early game, ~3 players). Generator: replaced backbite-from-snake with findHoledHamiltonian (Warnsdorff + connectivity + leaf-prune seed search over playable cells) + hole-aware backbiteMix; solver/walls/win-detection are blank-aware via playableCount()/Nplay. Determinism: removed all wall-clock branching from generation (was non-reproducible under load); bounded instead by deterministic node budgets (findHoledHamiltonian node cap; generateForDifficulty cumulative genNodes cap). De-risked + validated via Node harness incl. brute-force automorphism check across all 34 configs. v0.33.0.
 
 ### 2026-06-08 — [cross-cutting] flatten.py re-stamps the block when content changes
 **Decision:** `flatten.py`'s `generated:` timestamp now tracks **last change**,

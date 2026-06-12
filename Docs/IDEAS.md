@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/IDEAS.md
-     generated: 2026-06-09T11:54:50Z by flatten.py — do not edit this block
+     generated: 2026-06-09T17:58:58Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Ideas / backlog

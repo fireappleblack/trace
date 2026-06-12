@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- flatten:begin
      repo-path: trace.html
-     generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
+     generated: 2026-06-12T22:19:14Z by flatten.py — do not edit this block
 flatten:end -->
 
 <html lang="en">
@@ -218,6 +218,18 @@ flatten:end -->
 
   .cell.last-row { border-bottom: none; }
   .cell.last-col { border-right: none; }
+
+  /* Blanked-off cells: removed from play. Rendered as a flat "hole" in the
+     board — no interaction, no path, no number. */
+  .cell.blocked {
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(45deg,
+        var(--rule-soft) 0, var(--rule-soft) 2px,
+        transparent 2px, transparent 7px),
+      var(--rule-soft);
+    box-shadow: inset 0 0 0 1px var(--rule);
+  }
 
   /* Walls: drawn as thick interior borders */
   .cell.wall-top    { box-shadow: inset 0  3px 0 0 var(--wall); }
@@ -1737,7 +1749,7 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = '0.32.2';
+const TRACE_VERSION = '0.33.0';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
@@ -1873,6 +1885,76 @@ const wk = (r1, c1, r2, c2) => {
 };
 const isAdj = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) === 1;
 
+// ─── Blanked-off cells ──────────────────────────────
+// Cells removed from play, to break the board's symmetry so the rectangle's own
+// rotations/reflections can't mint mirror-image "twin" solutions.
+//   One-pen: a single blank placed at seeded-random inside the bottom-left
+//     quadrant (bottom ⌊R/2⌋ rows × left ⌊C/2⌋ cols — which already excludes the
+//     middle row/col on odd dims). On odd×odd grids only the Hamiltonian-feasible
+//     checkerboard parity is legal; on squares the anti-diagonal is excluded too
+//     (unless that would empty the set, e.g. 5×5).
+//   Two-pen: the bottom-left CORNER is always blanked, PLUS one rolled cell
+//     anywhere except the top-right corner — two blanks keep the playable count
+//     odd so the centre "kiss" still exists.
+// The rolled cell's index is pinned to the URL as `bx`, so any link reproduces.
+let BLOCKED = new Set();   // keys "r,c" of blanked cells for the current puzzle
+let BX = -1;               // rolled blank's cell index (r*COLS+c), or -1 = none
+const isBlocked = (r, c) => BLOCKED.has(k(r, c));
+const playableCount = () => ROWS * COLS - BLOCKED.size;
+
+// Recompute BLOCKED from the current mode, size and rolled index BX.
+function setBlocked() {
+  BLOCKED = new Set();
+  if (TWO_PEN) BLOCKED.add(k(ROWS - 1, 0));            // bottom-left corner notch
+  if (BX >= 0) BLOCKED.add(k((BX / COLS) | 0, BX % COLS));
+}
+
+// Legal candidate cell indices for the one-pen rolled blank.
+function onePenBlankCandidates() {
+  const r0 = ROWS - Math.floor(ROWS / 2);   // first quadrant row (drops middle row on odd R)
+  const c1 = Math.floor(COLS / 2);          // one past last quadrant col (drops middle col on odd C)
+  const oddOdd = (ROWS % 2 === 1) && (COLS % 2 === 1);
+  const base = [];
+  for (let r = r0; r < ROWS; r++) for (let c = 0; c < c1; c++) {
+    if (oddOdd && ((r + c) % 2 !== 0)) continue;   // parity: only even (r+c) keep a Hamiltonian path
+    base.push(r * COLS + c);
+  }
+  if (ROWS === COLS) {
+    const off = base.filter(i => (((i / COLS) | 0) + (i % COLS)) !== (ROWS - 1));  // drop anti-diagonal
+    if (off.length) return off;                                                   // unless empty (5×5)
+  }
+  return base;
+}
+
+// Legal candidate cell indices for the two-pen rolled blank: anywhere but the
+// two corners on the main diagonal of removal (bottom-left already a notch, and
+// top-right would re-impose the 180° rotation we're breaking).
+// Legal candidate cell indices for the two-pen rolled blank X. The fixed
+// corner blank already breaks every board symmetry that MOVES it; the rolled X
+// must avoid two traps: (1) the other three corners, since a symmetric pair of
+// blanks re-imposes a reflection/rotation the corner had broken (TL re-imposes
+// the vertical reflection, BR the horizontal, TR the 180° + diagonals); and
+// (2) on SQUARE boards only, the anti-diagonal line — the one symmetry the
+// corner can't break, because that reflection fixes the corner. (Non-square
+// boards have no anti-diagonal reflection, so X is unconstrained there beyond
+// the corners.) None of this is required for uniqueness — the solver enforces
+// that regardless — but it keeps the symmetry-break clean, matching one-pen.
+function twoPenBlankCandidates() {
+  const R = ROWS, C = COLS;
+  const blIdx = (R - 1) * C;            // bottom-left  = blank #1
+  const trIdx = C - 1;                  // top-right
+  const tlIdx = 0;                      // top-left
+  const brIdx = (R - 1) * C + (C - 1);  // bottom-right
+  const square = (R === C);
+  const out = [];
+  for (let i = 0; i < R * C; i++) {
+    if (i === blIdx || i === trIdx || i === tlIdx || i === brIdx) continue;
+    if (square && (((i / C) | 0) + (i % C)) === (R - 1)) continue;   // off the anti-diagonal
+    out.push(i);
+  }
+  return out;
+}
+
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = (rng() * (i + 1)) | 0;
@@ -1890,29 +1972,120 @@ function neighbors(r, c) {
   return out;
 }
 
-// ─── Hamiltonian path (DFS + Warnsdorff) ────────────
-// Backbite Hamiltonian-path generator. Starts from the boustrophedon snake
-// (always a valid Hamiltonian path) and applies seeded random "backbite" moves:
-// pick an end, pick a random grid-neighbour w of that end; w sits at index j in
-// the path, so reversing the segment beyond j re-links the end to w and yields
-// another valid Hamiltonian path. Every move is O(segment) and never fails, so
-// this reliably and DETERMINISTICALLY produces a well-mixed path on any grid —
-// including large/odd ones the backtracking search struggles with. Used only
-// for new grid configs (rectangles, or any 9-dimension); legacy squares ≤8×8
-// keep the original search so their existing links stay byte-identical.
-function backbiteHamiltonian() {
-  const R = ROWS, C = COLS, total = R * C;
-  const arr = [];
-  for (let r = 0; r < R; r++) {
-    if (r % 2 === 0) for (let c = 0; c < C; c++) arr.push(r * C + c);
-    else             for (let c = C - 1; c >= 0; c--) arr.push(r * C + c);
+// ─── Hamiltonian path (DFS + Warnsdorff + backbite) ──
+// Generation is "blank-aware": the path covers only the non-blanked (playable)
+// cells. Two stages:
+//   findHoledHamiltonian — finds ONE Hamiltonian path over the playable cells
+//     via Warnsdorff-ordered DFS with a connectivity prune AND a leaf prune (at
+//     most one remaining cell of degree ≤1 besides the head). With blanks in
+//     arbitrary positions a constructive boustrophedon no longer works, so this
+//     search supplies the seed. It restarts over shuffled start cells within a
+//     time budget. Validated to find a seed reliably and fast for every legal
+//     blank across all sizes (worst case 9×9 two-pen, 79 cells).
+//   backbiteMix — given that seed, applies seeded "backbite" moves over the
+//     blank-aware adjacency to produce a well-mixed path (same idea as before:
+//     re-link an end to a neighbour and reverse the tail; always valid).
+// Legacy squares ≤8×8 keep the DFS path directly (so the wiggle bias still
+// shapes them); other configs mix it.
+function findHoledHamiltonian(nodeBudget, wig) {
+  const R = ROWS, C = COLS, Nfull = R * C;
+  const blk = new Uint8Array(Nfull);
+  for (const key of BLOCKED) { const ci = key.indexOf(','); blk[(+key.slice(0, ci)) * C + (+key.slice(ci + 1))] = 1; }
+  const playable = [];
+  for (let i = 0; i < Nfull; i++) if (!blk[i]) playable.push(i);
+  const Np = playable.length;
+  const adj = [];
+  for (let i = 0; i < Nfull; i++) {
+    const r = (i / C) | 0, c = i % C, a = [];
+    if (r > 0)      { const v = i - C; if (!blk[v]) a.push(v); }
+    if (r < R - 1)  { const v = i + C; if (!blk[v]) a.push(v); }
+    if (c > 0)      { const v = i - 1; if (!blk[v]) a.push(v); }
+    if (c < C - 1)  { const v = i + 1; if (!blk[v]) a.push(v); }
+    adj.push(a);
   }
-  const pos = new Int32Array(total);
+  // Work is bounded by a DETERMINISTIC node counter, never wall-clock, so the
+  // same (seed, blanks) always yields the same path on any machine/load — which
+  // is what makes a shared `bx` link reproduce exactly.
+  const visited = new Uint8Array(Nfull);
+  const seen = new Uint8Array(Nfull), stack = new Int32Array(Nfull);
+  const isHeadNbr = new Uint8Array(Nfull);
+  const remDeg = (i) => { let d = 0; const A = adj[i]; for (let q = 0; q < A.length; q++) if (!visited[A[q]]) d++; return d; };
+  function prune(head, curLen) {
+    // connectivity: every remaining cell must be reachable from the head
+    seen.fill(0); let top = 0;
+    for (const v of adj[head]) if (!visited[v] && !seen[v]) { seen[v] = 1; stack[top++] = v; }
+    let cnt = 0;
+    while (top > 0) { const x = stack[--top]; cnt++; for (const y of adj[x]) if (!visited[y] && !seen[y]) { seen[y] = 1; stack[top++] = y; } }
+    if (cnt !== (Np - curLen)) return false;
+    // leaf prune: at most one remaining cell may have effective degree ≤1
+    // (it would have to be the path's free end); none may be isolated. The head
+    // contributes a degree to each of its unvisited neighbours.
+    isHeadNbr.fill(0); for (const v of adj[head]) if (!visited[v]) isHeadNbr[v] = 1;
+    let leaves = 0;
+    for (let i = 0; i < Nfull; i++) {
+      if (blk[i] || visited[i] || i === head) continue;
+      const d = remDeg(i) + (isHeadNbr[i] ? 1 : 0);
+      if (d === 0) return false;
+      if (d === 1) { leaves++; if (leaves > 1) return false; }
+    }
+    return true;
+  }
+  const pathIdx = [];
+  let nodes = 0, budgetHit = false;
+  function dfs() {
+    if (nodes > nodeBudget) { budgetHit = true; return null; }
+    nodes++;
+    if (pathIdx.length === Np) return pathIdx.slice();
+    const last = pathIdx[pathIdx.length - 1];
+    const lr = (last / C) | 0, lc = last % C;
+    let ldr = 0, ldc = 0;
+    if (pathIdx.length >= 2) { const pv = pathIdx[pathIdx.length - 2]; ldr = lr - ((pv / C) | 0); ldc = lc - (pv % C); }
+    const cands = [];
+    for (const v of adj[last]) if (!visited[v]) cands.push(v);
+    cands.sort((a, b) => {
+      let sa = remDeg(a), sb = remDeg(b);
+      if (wig) {   // bias ties toward/away from turns, like the legacy square search
+        const aTurn = !(((a / C) | 0) - lr === ldr && (a % C) - lc === ldc);
+        const bTurn = !(((b / C) | 0) - lr === ldr && (b % C) - lc === ldc);
+        sa += (-wig.bias * (aTurn ? 1 : -1)) * 0.3;
+        sb += (-wig.bias * (bTurn ? 1 : -1)) * 0.3;
+      }
+      return (sa - sb) + (rng() - 0.5) * 0.01;
+    });
+    for (const nx of cands) {
+      visited[nx] = 1; pathIdx.push(nx);
+      let ok = true;
+      if (pathIdx.length < Np) ok = prune(nx, pathIdx.length);
+      if (ok) { const r = dfs(); if (r) return r; }
+      pathIdx.pop(); visited[nx] = 0;
+      if (budgetHit) return null;
+    }
+    return null;
+  }
+  const starts = playable.slice();
+  for (let i = starts.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [starts[i], starts[j]] = [starts[j], starts[i]]; }
+  for (const s of starts) {
+    visited.fill(0); pathIdx.length = 0; visited[s] = 1; pathIdx.push(s);
+    const r = dfs(); if (r) return r.map(idx => [(idx / C) | 0, idx % C]);
+    if (budgetHit) break;
+  }
+  return null;
+}
+
+function backbiteMix(seedPath) {
+  const R = ROWS, C = COLS, Nfull = R * C;
+  const blk = new Uint8Array(Nfull);
+  for (const key of BLOCKED) { const ci = key.indexOf(','); blk[(+key.slice(0, ci)) * C + (+key.slice(ci + 1))] = 1; }
+  const arr = seedPath.map(([r, c]) => r * C + c);
+  const total = arr.length;
+  const pos = new Int32Array(Nfull); pos.fill(-1);
   for (let i = 0; i < total; i++) pos[arr[i]] = i;
   const nbrs = (idx) => {
     const r = (idx / C) | 0, c = idx % C, o = [];
-    if (r > 0) o.push(idx - C); if (r < R - 1) o.push(idx + C);
-    if (c > 0) o.push(idx - 1); if (c < C - 1) o.push(idx + 1);
+    if (r > 0)     { const v = idx - C; if (!blk[v]) o.push(v); }
+    if (r < R - 1) { const v = idx + C; if (!blk[v]) o.push(v); }
+    if (c > 0)     { const v = idx - 1; if (!blk[v]) o.push(v); }
+    if (c < C - 1) { const v = idx + 1; if (!blk[v]) o.push(v); }
     return o;
   };
   const moves = total * 8;   // strong mixing
@@ -1920,11 +2093,13 @@ function backbiteHamiltonian() {
     const useTail = rng() < 0.5;
     const end = useTail ? arr[total - 1] : arr[0];
     const ns = nbrs(end);
+    if (ns.length === 0) continue;
     const w = ns[(rng() * ns.length) | 0];
     const j = pos[w];
+    if (j < 0) continue;
     let lo, hi;
-    if (useTail) { if (j === total - 2) continue; lo = j + 1; hi = total - 1; }
-    else         { if (j === 1) continue;         lo = 0;     hi = j - 1; }
+    if (useTail) { if (j >= total - 2) continue; lo = j + 1; hi = total - 1; }
+    else         { if (j <= 1) continue;         lo = 0;     hi = j - 1; }
     while (lo < hi) {
       const a = arr[lo], b = arr[hi];
       arr[lo] = b; arr[hi] = a; pos[b] = lo; pos[a] = hi; lo++; hi--;
@@ -1934,70 +2109,19 @@ function backbiteHamiltonian() {
 }
 
 function generateHamiltonian() {
-  // New grid configs (rectangles, or any dimension of 9) use the robust,
-  // deterministic backbite generator. Legacy squares (≤8×8) keep the original
-  // search so existing seeds/links reproduce exactly.
-  if (!(ROWS === COLS && ROWS <= 8)) return backbiteHamiltonian();
-  const total = ROWS * COLS;
-  let start;
-  if (total % 2 === 1) {
-    // Odd cell count (both dims odd): both endpoints must sit on the majority
-    // checkerboard parity (the corner colour, parity 0).
-    do { start = [(rng() * ROWS) | 0, (rng() * COLS) | 0]; }
-    while ((start[0] + start[1]) % 2 !== 0);
-  } else {
-    start = [(rng() * ROWS) | 0, (rng() * COLS) | 0];
-  }
-  const visited = new Set([k(start[0], start[1])]);
-  const p = [start];
-  const t0 = Date.now();
-  // Backtracking search cost grows with area; give bigger grids more time so
-  // 9×9 (81 cells) reliably yields a path. Each generation attempt reseeds the
-  // RNG, so multiple attempts act as random restarts of the Warnsdorff search.
-  const TIMEOUT = total <= 49 ? 800 : total <= 64 ? 1400 : 2400;
-
-  function onwardCount(r, c) {
-    let n = 0;
-    for (const [nr, nc] of neighbors(r, c)) if (!visited.has(k(nr, nc))) n++;
-    return n;
-  }
-  function dfs() {
-    if (p.length === total) return true;
-    if (Date.now() - t0 > TIMEOUT) return false;
-    const [r, c] = p[p.length - 1];
-    const cands = [];
-    for (const n of neighbors(r, c)) if (!visited.has(k(n[0], n[1]))) cands.push(n);
-    let ordered;
-    if (genWiggle) {
-      // Warnsdorff (fewest onward moves first) still dominates, to avoid dead
-      // ends; the wiggle bias only reorders *ties* — nudging turning moves
-      // earlier when wiggly, straight moves earlier when straight. The bias
-      // term is < the integer gap between onward-counts, so it never overrides
-      // Warnsdorff. A little rng jitter preserves variety across sub-seeds.
-      let ldr = 0, ldc = 0;
-      if (p.length >= 2) { const pr = p[p.length - 2]; ldr = r - pr[0]; ldc = c - pr[1]; }
-      const bias = genWiggle.bias;
-      const scored = cands.map(n => {
-        const isTurn = (p.length >= 2) ? !(n[0] - r === ldr && n[1] - c === ldc) : true;
-        const score = onwardCount(n[0], n[1]) + (-bias * (isTurn ? 1 : -1)) * 0.3 + rng() * 0.1;
-        return { n, score };
-      });
-      scored.sort((a, b) => a.score - b.score);
-      ordered = scored.map(s => s.n);
-    } else {
-      shuffle(cands);
-      cands.sort((a, b) => onwardCount(a[0], a[1]) - onwardCount(b[0], b[1]));
-      ordered = cands;
-    }
-    for (const n of ordered) {
-      const key = k(n[0], n[1]);
-      visited.add(key); p.push(n);
-      if (dfs()) return true;
-      p.pop(); visited.delete(key);
-    }
-    return false;
-  }
-  return dfs() ? p : null;
+  // Find a seed Hamiltonian path over the playable cells, then (for non legacy-
+  // square configs) mix it. Legacy squares ≤8×8 keep the DFS path directly so
+  // the wiggle bias still shapes their look.
+  const square8 = (ROWS === COLS && ROWS <= 8);
+  const wig = square8 ? genWiggle : null;
+  const area = ROWS * COLS;
+  // Deterministic node budget: generous enough that any feasible board is found
+  // (easy boards use a tiny fraction of it), bounded so a pathological blank
+  // still terminates and we roll the next candidate.
+  const nodeBudget = Math.max(60000, area * 1500);
+  const seed = findHoledHamiltonian(nodeBudget, wig);
+  if (!seed) return null;
+  return square8 ? seed : backbiteMix(seed);
 }
 
 // ─── Wiggliness ─────────────────────────────────────
@@ -2192,8 +2316,9 @@ function addExtraWalls(sol) {
   }
   const avail = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    if (c < COLS - 1) { const e = wk(r, c, r, c + 1); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
-    if (r < ROWS - 1) { const e = wk(r, c, r + 1, c); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+    if (isBlocked(r, c)) continue;
+    if (c < COLS - 1 && !isBlocked(r, c + 1)) { const e = wk(r, c, r, c + 1); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
+    if (r < ROWS - 1 && !isBlocked(r + 1, c)) { const e = wk(r, c, r + 1, c); if (!solEdge.has(e) && !walls.has(e)) avail.push(e); }
   }
   shuffle(avail);
   const take = Math.floor(avail.length * frac);
@@ -2241,6 +2366,7 @@ function decisionDensity(path, wallSet) {
     const ldr = cu[0] - pr[0], ldc = cu[1] - pr[1];
     let turnAvail = false;
     for (const [nr, nc] of neighbors(cu[0], cu[1])) {
+      if (isBlocked(nr, nc)) continue;
       if (seen.has(k(nr, nc))) continue;
       if (wallSet.has(wk(cu[0], cu[1], nr, nc))) continue;
       if (!((nr - cu[0]) === ldr && (nc - cu[1]) === ldc)) { turnAvail = true; break; }
@@ -2284,29 +2410,38 @@ function pickWaypoints(sol, count) {
 }
 
 // ─── Solver ─────────────────────────────────────────
+// Generation-wide solver-work counter. Accumulates every solve()'s node count
+// so generateForDifficulty can cap total work DETERMINISTICALLY (node counts
+// are a pure function of seed+blanks), giving the old wall-clock budget's
+// early-stop behaviour without its non-reproducibility.
+let genNodes = 0;
 // Counts valid Hamiltonian paths (early-exit at maxCount).
 // Returns the first one or two found, plus node count.
 // Used both to verify uniqueness AND to estimate difficulty.
 function buildSolverData(wallSet) {
-  const N = ROWS * COLS;
+  const N = ROWS * COLS;               // index space (arrays); blanks live here but get no edges
   const isWp = new Int8Array(N); isWp.fill(-1);
   for (const w of waypoints) isWp[w.r * COLS + w.c] = w.n - 1;
+  const blk = new Uint8Array(N);
+  for (const key of BLOCKED) { const ci = key.indexOf(','); blk[(+key.slice(0, ci)) * COLS + (+key.slice(ci + 1))] = 1; }
   const adj = [];
   for (let i = 0; i < N; i++) {
     const r = (i / COLS) | 0, c = i % COLS;
     const a = [];
-    if (r > 0          && !wallSet.has(wk(r - 1, c, r, c))) a.push((r - 1) * COLS + c);
-    if (r < ROWS - 1   && !wallSet.has(wk(r, c, r + 1, c))) a.push((r + 1) * COLS + c);
-    if (c > 0          && !wallSet.has(wk(r, c - 1, r, c))) a.push(r * COLS + c - 1);
-    if (c < COLS - 1   && !wallSet.has(wk(r, c, r, c + 1))) a.push(r * COLS + c + 1);
+    if (!blk[i]) {
+      if (r > 0          && !blk[i - COLS] && !wallSet.has(wk(r - 1, c, r, c))) a.push((r - 1) * COLS + c);
+      if (r < ROWS - 1   && !blk[i + COLS] && !wallSet.has(wk(r, c, r + 1, c))) a.push((r + 1) * COLS + c);
+      if (c > 0          && !blk[i - 1]    && !wallSet.has(wk(r, c - 1, r, c))) a.push(r * COLS + c - 1);
+      if (c < COLS - 1   && !blk[i + 1]    && !wallSet.has(wk(r, c, r, c + 1))) a.push(r * COLS + c + 1);
+    }
     adj.push(a);
   }
-  return { adj, isWp, N };
+  return { adj, isWp, N, Nplay: N - BLOCKED.size };
 }
 
 function solve(wallSet, maxCount, nodeCap) {
   nodeCap = nodeCap || 200000;
-  const { adj, isWp, N } = buildSolverData(wallSet);
+  const { adj, isWp, N, Nplay } = buildSolverData(wallSet);
   const startIdx = waypoints[0].r * COLS + waypoints[0].c;
   const visited = new Uint8Array(N);
   visited[startIdx] = 1;
@@ -2337,7 +2472,7 @@ function solve(wallSet, maxCount, nodeCap) {
         if (!visited[y] && !seen[y]) { seen[y] = 1; stack[top++] = y; }
       }
     }
-    return cnt === (N - cur.length);
+    return cnt === (Nplay - cur.length);
   }
 
   function dfs() {
@@ -2345,7 +2480,7 @@ function solve(wallSet, maxCount, nodeCap) {
     nodes++;
     if (nodes > nodeCap) { aborted = true; return; }
 
-    if (cur.length === N) {
+    if (cur.length === Nplay) {
       if (nextWp === waypoints.length) {
         if (found.length < 2) found.push(cur.slice());
         count++;
@@ -2362,7 +2497,7 @@ function solve(wallSet, maxCount, nodeCap) {
       visited[next] = 1;
       cur.push(next);
       let ok = true;
-      if (cur.length < N) ok = unvisitedReachableFrom(next);
+      if (cur.length < Nplay) ok = unvisitedReachableFrom(next);
       if (ok) {
         if (wIdx !== -1) nextWp++;
         dfs();
@@ -2374,6 +2509,7 @@ function solve(wallSet, maxCount, nodeCap) {
     }
   }
   dfs();
+  genNodes += nodes;        // deterministic generation-wide work counter (see generateForDifficulty)
   return { count, nodes, found, aborted };
 }
 
@@ -2465,17 +2601,22 @@ function generateForDifficulty() {
   genWiggle = wiggleParamsFor(WIGGLE);
   const wiggleActive = !!genWiggle;
 
-  // Larger grids cost more per attempt; bound total time spent (by area, so
-  // rectangles are budgeted sensibly too).
-  const ATTEMPTS    = area <= 42 ? 18 : area <= 56 ? 10 : 8;
-  const TIME_BUDGET = area <= 42 ? 1800 : area <= 56 ? 2800 : 6500;
+  // Attempt count is fixed per area; each attempt is bounded by DETERMINISTIC
+  // node budgets (seed search + uniqueness solver caps), with no wall-clock
+  // branching anywhere — so a given (seed, size, difficulty, w, m, pts, bx)
+  // reproduces the exact same puzzle on any machine, regardless of CPU load.
+  // Once a usable candidate exists, a cumulative solver-node budget stops the
+  // search early on the largest grids (where exhausting all attempts is slow)
+  // — node counts are deterministic, so this early stop is reproducible too.
+  const ATTEMPTS = area <= 42 ? 18 : area <= 56 ? 10 : 8;
+  const NODE_BUDGET = area <= 56 ? Infinity : area <= 64 ? 5_000_000 : area <= 72 ? 4_000_000 : 3_500_000;
+  genNodes = 0;
 
   let best = null, bestScore = Infinity;     // closest difficulty (fallback)
   let wBest = null, wBestScore = Infinity;   // closest wiggliness among difficulty matches
-  const t0 = Date.now();
 
   for (let i = 0; i < ATTEMPTS; i++) {
-    if (best && Date.now() - t0 > TIME_BUDGET) break;
+    if (best && genNodes > NODE_BUDGET) break;
     // Vary waypoint count slightly across attempts to broaden coverage — but
     // only in auto mode. When K is fixed, every attempt uses exactly that K.
     const wpJitter = fixedK > 0 ? 0 : (i % 5) - 2;
@@ -2513,16 +2654,45 @@ function generateForDifficulty() {
   return best;
 }
 
+// Roll the blanked-off cell(s) and generate. The blank position is fixed for a
+// given (seed, size, mode) across the difficulty attempts inside
+// generateForDifficulty; only on the rare unrollable board do we advance to the
+// next seed-derived blank candidate. `fixedBx` (a shared link's pinned `bx`)
+// forces exactly that blank. Sets BLOCKED/BX to the winning roll.
+function rollBlanksAndGenerate(fixedBx) {
+  if (Number.isInteger(fixedBx) && fixedBx >= 0) {
+    BX = fixedBx; setBlocked();
+    return generateForDifficulty();
+  }
+  const cands = TWO_PEN ? twoPenBlankCandidates() : onePenBlankCandidates();
+  if (!cands.length) { BX = -1; setBlocked(); return generateForDifficulty(); }
+  const hr = makeRNG(SEED + ':blankseq');
+  const order = cands.slice();
+  for (let i = order.length - 1; i > 0; i--) { const j = (hr() * (i + 1)) | 0; [order[i], order[j]] = [order[j], order[i]]; }
+  for (const bx of order) {
+    BX = bx; setBlocked();
+    const cand = generateForDifficulty();
+    if (cand) return cand;
+  }
+  return null;
+}
+
 // ─── Snake fallback (should almost never trigger) ───
 function snakeFallback() {
-  const sol = [];
-  for (let r = 0; r < ROWS; r++) {
-    if (r % 2 === 0) for (let c = 0; c < COLS; c++) sol.push([r, c]);
-    else              for (let c = COLS - 1; c >= 0; c--) sol.push([r, c]);
+  rng = makeRNG(SEED + ':fallback');
+  let sol = findHoledHamiltonian(Math.max(150000, ROWS * COLS * 3000), null);   // honour the current blanks if at all possible
+  if (!sol) {
+    // Absolute last resort: drop the blanks entirely and snake the full grid.
+    BLOCKED = new Set(); BX = -1;
+    sol = [];
+    for (let r = 0; r < ROWS; r++) {
+      if (r % 2 === 0) for (let c = 0; c < COLS; c++) sol.push([r, c]);
+      else              for (let c = COLS - 1; c >= 0; c--) sol.push([r, c]);
+    }
   }
   solution = sol;
   const fixedK = effectivePoints();
-  waypoints = pickWaypoints(sol, fixedK > 0 ? fixedK : targetWaypoints(DIFFICULTY, ROWS * COLS));
+  waypoints = pickWaypoints(sol, fixedK > 0 ? fixedK : targetWaypoints(DIFFICULTY, playableCount()));
   walls = new Set();
 }
 
@@ -2540,12 +2710,15 @@ async function newPuzzle(opts) {
   let cand = null;
   // On the rare failed generation (low point counts on the largest grids), try
   // a fresh seed before falling back to a trivial snake — but only for fresh
-  // puzzles, never a shared link (whose seed must reproduce exactly).
+  // puzzles, never a shared link (whose seed must reproduce exactly). The
+  // blanked cell is a rolled value: a shared link pins it via `bx` (BX parsed
+  // from the URL); a fresh puzzle rolls it from the seed.
+  const fixedBx = (opts.fromURL === true) ? BX : null;
   const tries = (opts.fromURL === true) ? 1 : 3;
   for (let attempt = 0; attempt < tries && !cand; attempt++) {
     if (attempt > 0) SEED = randomSeedString();
     try {
-      cand = generateForDifficulty();
+      cand = rollBlanksAndGenerate(fixedBx);
     } catch (e) {
       console.error(e);
     }
@@ -2589,6 +2762,8 @@ function parseURL() {
   const m    = parseInt(p.get('m'), 10);
   const t    = p.get('t');
   const pts  = parseInt(p.get('pts'), 10);
+  const bxp  = parseInt(p.get('bx'), 10);
+  BX = Number.isInteger(bxp) && bxp >= 0 ? bxp : -1;   // rolled blank index, pinned on shared links
   // Mode precedence: an explicit ?t= wins (faithful shared links); a shared
   // puzzle with no t is classic; a bare first visit restores the saved choice.
   if (t !== null) TWO_PEN = (t === '1');
@@ -2632,6 +2807,7 @@ function updateURL() {
   if (TWO_PEN) p.set('t', '1');
   if (TWO_PEN) p.set('diffshades', DIFF_SHADES ? 'true' : 'false');
   if (POINTS >= 3) p.set('pts', POINTS);            // explicit point count only
+  if (BX >= 0) p.set('bx', BX);                      // rolled blanked-cell index
   history.replaceState(null, '', location.pathname + '?' + p.toString());
 }
 
@@ -2711,6 +2887,7 @@ function render() {
       cell.className = 'cell';
       cell.dataset.r = r;
       cell.dataset.c = c;
+      if (isBlocked(r, c)) { cell.classList.add('blocked'); grid.appendChild(cell); continue; }
       if (r === ROWS - 1) cell.classList.add('last-row');
       if (c === COLS - 1) cell.classList.add('last-col');
       if (r > 0        && walls.has(wk(r - 1, c, r, c))) cell.classList.add('wall-top');
@@ -2800,7 +2977,7 @@ function updateStatus() {
   if (TWO_PEN) {
     const drawn = penPaths[0].length + penPaths[1].length - (
       (penHeadIsCentre(0) && penHeadIsCentre(1)) ? 1 : 0);   // don't double-count a shared kiss
-    progressEl.textContent = `${Math.max(0, drawn)} / ${ROWS * COLS}`;
+    progressEl.textContent = `${Math.max(0, drawn)} / ${playableCount()}`;
     if (solved) {
       statusEl.textContent = 'Solved';
       statusEl.classList.add('solved'); boardWrap.classList.add('solved');
@@ -2812,7 +2989,7 @@ function updateStatus() {
     }
     return;
   }
-  progressEl.textContent = `${path.length} / ${ROWS * COLS}`;
+  progressEl.textContent = `${path.length} / ${playableCount()}`;
   if (solved) {
     statusEl.textContent = 'Solved';
     statusEl.classList.add('solved');
@@ -2821,7 +2998,7 @@ function updateStatus() {
     boardWrap.classList.remove('solved');
     statusEl.classList.remove('solved');
     if (path.length === 0)                 statusEl.textContent = 'Begin at 1';
-    else if (path.length === ROWS * COLS)  statusEl.textContent = 'Almost…';
+    else if (path.length === playableCount())  statusEl.textContent = 'Almost…';
     else                                    statusEl.textContent = 'Drawing';
   }
 }
@@ -2831,6 +3008,7 @@ function isStart(cell) {
   return waypoints[0].r === cell[0] && waypoints[0].c === cell[1];
 }
 function canAdd(newCell) {
+  if (isBlocked(newCell[0], newCell[1])) return false;
   if (path.length === 0) return isStart(newCell);
   const last = path[path.length - 1];
   if (!isAdj(last, newCell)) return false;
@@ -2846,7 +3024,7 @@ function canAdd(newCell) {
 }
 function checkSolved() {
   if (TWO_PEN) return checkSolvedTwoPen();
-  if (path.length !== ROWS * COLS) return false;
+  if (path.length !== playableCount()) return false;
   for (let i = 0; i < waypoints.length; i++) {
     const w = waypoints[i];
     const idx = path.findIndex(p => p[0] === w.r && p[1] === w.c);
@@ -2881,6 +3059,7 @@ function getCellAt(x, y) {
   const cw = r.width / COLS, ch = r.height / ROWS;
   const cc = Math.floor(rx / cw), rr = Math.floor(ry / ch);
   if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS) return null;
+  if (isBlocked(rr, cc)) return null;
   return [rr, cc];
 }
 function handleStart(x, y) {
@@ -3008,6 +3187,7 @@ function penWpHitCount(pen) {
 
 // Can the given pen extend onto `cell`?
 function canAddPen(pen, cell) {
+  if (isBlocked(cell[0], cell[1])) return false;
   const pp = penPaths[pen];
   if (pp.length === 0) return cell[0] === penDefs[pen].start[0] && cell[1] === penDefs[pen].start[1];
   if (penHeadIsCentre(pen)) return false;           // snake already finished at the kiss
@@ -3033,7 +3213,7 @@ function checkSolvedTwoPen() {
   if (!penHeadIsCentre(0) || !penHeadIsCentre(1)) return false;
   // Together cover every cell exactly once (the kiss is shared, counted once).
   const total = penPaths[0].length + penPaths[1].length - 1;
-  return total === ROWS * COLS;
+  return total === playableCount();
 }
 
 function handleStartTwoPen(x, y) {
