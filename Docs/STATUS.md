@@ -5,8 +5,9 @@ flatten:end -->
 
 # Trace — Status & Resilience Review
 
-**Checkpoint: 2026-06-08** — both the zip-game **Application** section and the
-**Infrastructure** sections refreshed. Note: the newly-built MariaDB, backups,
+**Checkpoint: 2026-06-12 (zip-game) · 2026-06-08 (platform)** — the zip-game
+**Application** section was refreshed 2026-06-12 (blanked-cell symmetry feature);
+the **Infrastructure** sections are as of 2026-06-08. Note: the newly-built MariaDB, backups,
 WordPress (LEMP), and Cloudflare manifests are **authored but not yet
 deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
 treat their cluster state as *pending* until deployed.
@@ -20,6 +21,25 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-12):** Added **blanked-off cells** that break the board's
+  symmetry, so rotations/reflections can't mint twin solutions — headless-validated
+  across all 34 configs (incl. a brute-force automorphism check, uniqueness,
+  centre-kiss, and full URL round-trip). One-pen blanks one cell in the bottom-left
+  quadrant (even `(r+c)` only on odd×odd, which is mandatory for a Hamiltonian path;
+  off the anti-diagonal on squares, bar 5×5 where that would empty the set). Two-pen
+  keeps the fixed bottom-left-corner blank and adds one rolled `X` that avoids the
+  other three corners and — on squares — the anti-diagonal: the corner alone breaks
+  every symmetry except the one reflection that *fixes* it, and a symmetric blank-pair
+  would re-impose one, so `X` carries those exclusions. The rolled blank is pinned to
+  the URL as **`bx`**. Generator replaced with a hole-aware **`findHoledHamiltonian`**
+  seed search (Warnsdorff + connectivity + leaf prune) + hole-aware backbite; the
+  solver, walls, and win-detection now count `playableCount()`. **This breaks
+  byte-identical legacy reproduction for all grids** (accepted — early game, ~3
+  players). Also fixed a latent **reproducibility bug**: generation branched on
+  wall-clock time and so could yield a different puzzle under load — now bounded by
+  **deterministic node budgets** only, so shared `bx`/seed links reproduce on any
+  machine (side effect: 9×9 generation fell from ~21s to ~5–9s). v0.33.0. **Not yet
+  browser-play-tested.** See the 2026-06-12 `[zip-game]` entry in `DECISIONS.md`.
 - **Platform (2026-06-08):** Authored the shared **MariaDB** StatefulSet (tuned
   for the shared case), the **off-cluster backups** stack (logical dumps +
   Longhorn target + restore helper), the **WordPress (LEMP)** per-site stack, and
@@ -82,13 +102,25 @@ returns.
   numbers share one neutral shade, much harder; toggling regenerates); and
   **per-control 🎲 randomisers + a "🎲 Surprise me"** full-randomise. Per the
   settled rule, every randomised/rolled value is written back to the URL, so any
-  puzzle — including a surprise one — is shareable and reproducible.
-- **Generation:** legacy squares ≤8×8 keep the original backtracking DFS (their
-  seeds/links reproduce byte-identically); all new configs (rectangles, or any
-  9-dimension grid) use a deterministic, never-failing **backbite generator**.
-  9×9 (81 cells) is the unique-solution frontier — heavy at low point counts;
-  the solver node cap is tiered by area and `newPuzzle` re-rolls the seed up to
-  3× (fresh puzzles only) before a trivial fallback. ≤8×8 stays fast.
+  puzzle — including a surprise one — is shareable and reproducible. **Blanked-off
+  cells** break each board's symmetry so rotations/reflections can't mint twin
+  solutions: one-pen removes one cell from the bottom-left quadrant; two-pen removes
+  the fixed bottom-left corner plus one rolled cell (kept off the other corners, and
+  off the anti-diagonal on squares). The rolled cell's index is pinned to the URL as
+  **`bx`**, and two blanks keep the two-pen playable count odd so the centre kiss
+  survives.
+- **Generation:** a hole-aware seed search (**`findHoledHamiltonian`** — Warnsdorff
+  ordering + connectivity prune + leaf prune over the *playable* cells) finds a
+  Hamiltonian path that skips the blanked cells; small squares keep that path
+  directly, larger and rectangular configs mix it with a hole-aware backbite. The
+  solver, walls, and win-detection all count `playableCount()`. Generation is bounded
+  by **deterministic node budgets** with no wall-clock branching, so a given seed +
+  `bx` reproduces the exact same puzzle on any machine, under any load. **The
+  blanked-cell feature broke byte-identical legacy reproduction** for all grids
+  (accepted — see DECISIONS 2026-06-12). 9×9 (81 cells) is still the unique-solution
+  frontier — now ~5–9s and the subject of a pending keep / exclude / raise-points call
+  (§6); `newPuzzle` re-rolls the seed up to 3× (fresh puzzles only) before a trivial
+  fallback. ≤7×7 stays fast.
 - **Onboarding flow:** the real puzzle is generated up front but hidden; on load
   the player sees a **sample backdrop** (a finished example, or their last solve)
   so the puzzle can't be studied before the timer. The first tap reveals a small
@@ -312,13 +344,15 @@ backups are actually running and a restore has been proven.
 ## 6. Outstanding setup tasks (separate from resilience)
 
 **Zip-game (application):**
-- **Browser play-test** of the new client features — confirm rectangle rendering,
-  two-snake visuals + the `diffshades` uniform shade reading as genuinely
-  ambiguous, the dice / "Surprise me" controls, and the 9×9 feel on a real
-  device. (All current validation is headless.)
-- **Decide the 9×9 strategy** — keep as-is, exclude it, or raise its minimum
-  point count — once it's been played. (See `DECISIONS.md` 2026-06-07 "9×9 is the
-  unique-solution frontier".)
+- **Browser play-test** of the new client features — rectangle rendering, two-snake
+  visuals + the `diffshades` uniform shade reading as genuinely ambiguous, the dice /
+  "Surprise me" controls, **the blanked-off cells (one-pen and two-pen) rendering as
+  clear holes and feeling fair to play around**, and the 9×9 feel on a real device.
+  (All current validation is headless.)
+- **Decide the 9×9 strategy** — keep as-is, exclude it, or raise its minimum point
+  count — once it's been played. 9×9 generation is now deterministic and ~5–9s (down
+  from ~21s); the residual cost is per-puzzle solver variance, not the old wall-clock
+  cap. (See `DECISIONS.md` 2026-06-07 + 2026-06-12.)
 
 **Platform / other:**
 
