@@ -6,7 +6,7 @@ flatten:end -->
 # Trace — Status & Resilience Review
 
 **Checkpoint: 2026-06-13 (zip-game) · 2026-06-08 (platform)** — the zip-game
-**Application** section was refreshed 2026-06-13 (multiple-solutions model, v0.40.0);
+**Application** section was refreshed 2026-06-13 (multiple-solutions model + wriggliness scoring, v0.41.0);
 the **Infrastructure** sections are as of 2026-06-08. Note: the newly-built MariaDB, backups,
 WordPress (LEMP), and Cloudflare manifests are **authored but not yet
 deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
@@ -21,6 +21,13 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, v0.41.0):** **Wriggliness scoring** landed. On solving, the
+  status line shows `Solved · N turns` (N = direction changes), and on repeat solves
+  of the same board adds `· fewest M` / `· most M` from a per-board best/most kept in
+  browser local storage — so players can chase a least-/most-wriggly target. One-pen
+  scores the path; two-pen sums both snakes. Validated (measure unit tests + end-to-end
+  solve-integration; generation unchanged). Remaining: a **server-side leaderboard**
+  for cross-player competition (an `app.py` task). See DECISIONS 2026-06-13.
 - **Zip-game (2026-06-13, v0.40.0):** **Multiple solutions are now allowed** — the
   game no longer enforces a unique solution. Generation stopped adding walls for
   uniqueness and dropped the uniqueness solve entirely; it just lays the ordered
@@ -143,12 +150,15 @@ returns.
 - **Solutions & scoring (v0.40.0):** a board may admit many valid paths; players
   compete on **wriggliness** — the number of direction changes (fewest, or most).
   Win-detection accepts *any* path that covers every non-blank cell and threads the
-  numbered nodes in order, so every valid route wins. A `solutionWriggliness()`
-  measure exists in the client; the player-facing wriggliness display/scoring is the
-  active **v0.41.0** work. An admin **find-the-shape** mode (pick an exact path —
-  "the fish" — validated by exact match) and an offline solution **enumerator**
-  (bounded by a solution cap, since counts explode on lightly-noded boards) are
-  planned for the admin back-end. Authoritative spec: `Docs/New-game-definition.md`.
+  numbered nodes in order, so every valid route wins. **Wriggliness scoring landed in
+  v0.41.0**: the solved line shows `Solved · N turns`, with a per-board best (fewest)
+  and most kept in local storage (`· fewest M` / `· most M` on repeat solves);
+  one-pen scores the path, two-pen sums both snakes. A **server-side leaderboard**
+  for cross-player competition is still to come. An admin **find-the-shape** mode
+  (pick an exact path — "the fish" — validated by exact match) and an offline
+  solution **enumerator** (bounded by a solution cap, since counts explode on
+  lightly-noded boards) are planned for the admin back-end. Authoritative spec:
+  `Docs/New-game-definition.md`.
 - **Onboarding flow:** the real puzzle is generated up front but hidden; on load
   the player sees a **sample backdrop** (a finished example, or their last solve)
   so the puzzle can't be studied before the timer. The first tap reveals a small
@@ -382,9 +392,10 @@ backups are actually running and a restore has been proven.
   generation from ~21s to ~2s, so the earlier keep / exclude / raise-points decision
   is no longer forced by performance. Any remaining call on 9×9 is now purely about
   *feel*, to be made during play-test. (See `DECISIONS.md` 2026-06-13.)
-- **Wriggliness scoring (in progress, v0.41.0):** surface each solution's
-  wriggliness to the player and support fewest/most-wriggly competition; the
-  `solutionWriggliness()` measure already exists.
+- **Wriggliness scoring — landed (v0.41.0):** each solution's turn-count is shown on
+  solve, with a per-board best/most in local storage. **Remaining:** a server-side
+  leaderboard so players compete across devices on fewest/most-wriggly (an `app.py`
+  + API task, not yet started).
 
 **Platform / other:**
 
