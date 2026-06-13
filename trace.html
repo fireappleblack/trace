@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- flatten:begin
      repo-path: trace.html
-     generated: 2026-06-12T22:19:14Z by flatten.py — do not edit this block
+     generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
 flatten:end -->
 
 <html lang="en">
@@ -1749,7 +1749,7 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = 'v0.33.0';
+const TRACE_VERSION = '0.40.0';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
@@ -1926,30 +1926,26 @@ function onePenBlankCandidates() {
   return base;
 }
 
-// Legal candidate cell indices for the two-pen rolled blank: anywhere but the
-// two corners on the main diagonal of removal (bottom-left already a notch, and
-// top-right would re-impose the 180° rotation we're breaking).
-// Legal candidate cell indices for the two-pen rolled blank X. The fixed
-// corner blank already breaks every board symmetry that MOVES it; the rolled X
-// must avoid two traps: (1) the other three corners, since a symmetric pair of
-// blanks re-imposes a reflection/rotation the corner had broken (TL re-imposes
-// the vertical reflection, BR the horizontal, TR the 180° + diagonals); and
-// (2) on SQUARE boards only, the anti-diagonal line — the one symmetry the
-// corner can't break, because that reflection fixes the corner. (Non-square
-// boards have no anti-diagonal reflection, so X is unconstrained there beyond
-// the corners.) None of this is required for uniqueness — the solver enforces
-// that regardless — but it keeps the symmetry-break clean, matching one-pen.
+// Legal candidate cell indices for the two-pen rolled blank X. v0.40.0 confines
+// X to the bottom-left quadrant (Game-Definition §13). That confinement makes
+// the symmetry guarantee clean: the fixed corner blank breaks every symmetry
+// that MOVES it, and a quadrant cell can never mirror-pair with the corner
+// across any axis (its partner lands in another quadrant), so X cannot re-impose
+// a broken symmetry. The only symmetry the corner can't break is the
+// anti-diagonal (which fixes it), so on a square X must stay off it. No parity
+// filter is needed: removing the majority-colour corner already rebalances, so
+// either colour of X still admits a Hamiltonian path.
 function twoPenBlankCandidates() {
   const R = ROWS, C = COLS;
-  const blIdx = (R - 1) * C;            // bottom-left  = blank #1
-  const trIdx = C - 1;                  // top-right
-  const tlIdx = 0;                      // top-left
-  const brIdx = (R - 1) * C + (C - 1);  // bottom-right
+  const r0 = R - Math.floor(R / 2);   // first quadrant row
+  const c1 = Math.floor(C / 2);       // one past last quadrant col
+  const cornerIdx = (R - 1) * C;      // bottom-left corner = the fixed first blank
   const square = (R === C);
   const out = [];
-  for (let i = 0; i < R * C; i++) {
-    if (i === blIdx || i === trIdx || i === tlIdx || i === brIdx) continue;
-    if (square && (((i / C) | 0) + (i % C)) === (R - 1)) continue;   // off the anti-diagonal
+  for (let r = r0; r < R; r++) for (let c = 0; c < c1; c++) {
+    const i = r * C + c;
+    if (i === cornerIdx) continue;
+    if (square && (r + c) === (R - 1)) continue;    // off the anti-diagonal
     out.push(i);
   }
   return out;
@@ -2351,6 +2347,23 @@ function pathWiggliness(path) {
   return { turnRatio: turns / (path.length - 2), longestRun: longest };
 }
 
+// Solution-wriggliness (Game-Definition §15): the raw count of direction changes
+// (turns) along a completed path — an interior cell whose incoming direction
+// differs from its outgoing direction; the two ends aren't turns. This is the
+// competitive score (least / most wriggly), and is deliberately distinct from
+// the build-time wiggle bias `w` (which only shapes generation). Works on a
+// one-pen path or on either snake of a two-pen solve.
+function solutionWriggliness(path) {
+  if (!path || path.length < 3) return 0;
+  let turns = 0;
+  for (let i = 1; i < path.length - 1; i++) {
+    const a = path[i - 1], b = path[i], c = path[i + 1];
+    const straight = (b[0] - a[0] === c[0] - b[0]) && (b[1] - a[1] === c[1] - b[1]);
+    if (!straight) turns++;
+  }
+  return turns;
+}
+
 // "Decision density": the count of interior cells where the solution goes
 // STRAIGHT while an unvisited, un-walled TURN was available. These are exactly
 // the cells where a blind "always turn" strategy diverges from the solution —
@@ -2568,90 +2581,66 @@ function generateCandidate(subSeed, wpCount) {
   solution = sol;
   waypoints = pickWaypoints(sol, wpCount);
   walls = new Set();
-  // Solver cap scales with grid area since the search space does. Large grids
-  // (area > 64, i.e. beyond 8×8) need a much higher budget to confirm
-  // uniqueness, which is intrinsically expensive there.
-  const area = ROWS * COLS;
-  const cap = area <= 64 ? Math.max(50000, area * 5000) : area * 9000;
-  const uniqWalls = enforceUniqueness(sol, cap);
-  if (!uniqWalls) return null;
-  walls = uniqWalls;
-  addExtraWalls(sol);   // layer the WALLS-level extra walls (solution-safe, uniqueness-safe)
-  // Final difficulty measure: solve to count nodes (already small after enforcement).
-  const r = solve(walls, 2, cap);
-  return {
-    sol, waypoints: waypoints.slice(), walls: new Set(walls),
-    nodes: r.nodes, aborted: r.aborted
-  };
+  // v0.40.0: boards may have MANY solutions (see Game-Definition §14). We no
+  // longer add walls to force a unique solution, and we no longer run the
+  // (expensive) uniqueness solve — generation just lays the ordered nodes along
+  // a real Hamiltonian path, which guarantees ≥1 solution by construction. The
+  // optional WALLS-level walls are solution-safe (placed only on non-path edges),
+  // so the constructed path always remains valid. This removes the solver from
+  // the hot path, so large grids (esp. 9×9) generate fast.
+  addExtraWalls(sol);
+  return { sol, waypoints: waypoints.slice(), walls: new Set(walls) };
 }
 
 function generateForDifficulty() {
   const area = ROWS * COLS;
-  const target = DIFFICULTY;
-  // Waypoint count K is now decoupled from grid size. POINTS>0 fixes K (the
-  // player's choice, 5..12, clamped to what the grid can hold); POINTS===0 is
-  // the legacy "auto" behaviour where K tracks difficulty × area — so existing
-  // links with no `pts` reproduce byte-identically.
+  // Waypoint count K: POINTS>0 fixes K (the player's choice); POINTS===0 is the
+  // "auto" behaviour where K tracks DIFFICULTY × area. DIFFICULTY now only
+  // influences the auto node count — it no longer targets solver effort, since
+  // boards needn't be uniquely solvable (Game-Definition §14).
   const fixedK = effectivePoints();          // 0 when auto
-  const baseWp = fixedK > 0 ? fixedK : targetWaypoints(target, area);
+  const baseWp = fixedK > 0 ? fixedK : targetWaypoints(DIFFICULTY, area);
 
-  // Wiggliness target from the current puzzle's WIGGLE level. null = default/
-  // natural, in which case the original fast path runs and puzzles are
-  // bit-identical to before (this keeps the daily and w=2 links stable).
+  // Build-wiggle target from the current puzzle's WIGGLE level. null = default/
+  // natural look.
   genWiggle = wiggleParamsFor(WIGGLE);
   const wiggleActive = !!genWiggle;
 
-  // Attempt count is fixed per area; each attempt is bounded by DETERMINISTIC
-  // node budgets (seed search + uniqueness solver caps), with no wall-clock
-  // branching anywhere — so a given (seed, size, difficulty, w, m, pts, bx)
-  // reproduces the exact same puzzle on any machine, regardless of CPU load.
-  // Once a usable candidate exists, a cumulative solver-node budget stops the
-  // search early on the largest grids (where exhausting all attempts is slow)
-  // — node counts are deterministic, so this early stop is reproducible too.
-  const ATTEMPTS = area <= 42 ? 18 : area <= 56 ? 10 : 8;
-  const NODE_BUDGET = area <= 56 ? Infinity : area <= 64 ? 5_000_000 : area <= 72 ? 4_000_000 : 3_500_000;
-  genNodes = 0;
+  // Every attempt is now cheap (a path generation + node placement + optional
+  // solution-safe walls — no solver), so a handful gives variety / wiggle choice
+  // without the old latency. Each generateCandidate fully reseeds the RNG, so the
+  // result is deterministic for (seed, size, w, m, pts, bx).
+  const ATTEMPTS = wiggleActive ? (area <= 56 ? 14 : 8) : 1;
 
-  let best = null, bestScore = Infinity;     // closest difficulty (fallback)
-  let wBest = null, wBestScore = Infinity;   // closest wiggliness among difficulty matches
+  if (!wiggleActive) {
+    // Natural look: the first valid candidate wins (fast, deterministic).
+    for (let i = 0; i < ATTEMPTS + 7; i++) {
+      const wp = Math.max(3, baseWp + (fixedK > 0 ? 0 : (i % 5) - 2));
+      const cand = generateCandidate(i, wp);
+      if (cand) return cand;
+    }
+    return null;
+  }
 
+  // Build-wiggle active: pick the candidate whose path wiggliness sits closest to
+  // the target, lifting the low tail via the decision-density floor (kills the
+  // trivially always-turn-solvable look). All measures are O(path) — no solver.
+  let wBest = null, wBestScore = Infinity;
   for (let i = 0; i < ATTEMPTS; i++) {
-    if (best && genNodes > NODE_BUDGET) break;
-    // Vary waypoint count slightly across attempts to broaden coverage — but
-    // only in auto mode. When K is fixed, every attempt uses exactly that K.
-    const wpJitter = fixedK > 0 ? 0 : (i % 5) - 2;
-    const wp = Math.max(3, baseWp + wpJitter);
+    const wp = Math.max(3, baseWp + (fixedK > 0 ? 0 : (i % 5) - 2));
     const cand = generateCandidate(i, wp);
     if (!cand) continue;
-    const observed = cand.aborted ? 'fiendish' : classify(cand.nodes, area);
-    const score = Math.abs(DIFFS.indexOf(observed) - DIFFS.indexOf(target));
-    if (score < bestScore) { bestScore = score; best = cand; }
-
-    if (!wiggleActive) {
-      // Original fast path: first exact difficulty match wins.
-      if (observed === target) return cand;
-      if (score === 1 && i >= 4) return cand;     // accept a one-band miss later
-    } else if (observed === target) {
-      // Difficulty matches — score by closeness to the target turn ratio, then
-      // lift the low tail: penalise candidates whose decision density (straight
-      // cells with a turn available — where "always turn" would diverge) falls
-      // below the floor. This keeps the wiggly LOOK while killing the trivially
-      // always-turn-solvable puzzles that the old maximal-turn target produced.
-      const w = pathWiggliness(cand.sol);
-      let ws = Math.abs(w.turnRatio - genWiggle.target);
-      if (genWiggle.floorFrac) {
-        const interior = cand.sol.length - 2;
-        const floor = genWiggle.floorFrac * interior;
-        const dens = decisionDensity(cand.sol, cand.walls);
-        if (dens < floor) ws += (floor - dens) * 0.03;
-      }
-      if (ws < wBestScore) { wBestScore = ws; wBest = cand; }
+    const w = pathWiggliness(cand.sol);
+    let ws = Math.abs(w.turnRatio - genWiggle.target);
+    if (genWiggle.floorFrac) {
+      const interior = cand.sol.length - 2;
+      const floor = genWiggle.floorFrac * interior;
+      const dens = decisionDensity(cand.sol, cand.walls);
+      if (dens < floor) ws += (floor - dens) * 0.03;
     }
+    if (ws < wBestScore) { wBestScore = ws; wBest = cand; }
   }
-  // Wiggle mode: difficulty match closest to the target wiggliness, else fall
-  // back to the closest-difficulty candidate (difficulty always wins).
-  if (wiggleActive && wBest) return wBest;
-  return best;
+  return wBest;
 }
 
 // Roll the blanked-off cell(s) and generate. The blank position is fixed for a
