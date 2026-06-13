@@ -1749,7 +1749,7 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = '0.40.0';
+const TRACE_VERSION = '0.41.0';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
@@ -2724,6 +2724,7 @@ async function newPuzzle(opts) {
   path = [];
   penPaths = [[], []];
   activePen = -1;
+  lastWrig = null;                    // clear the previous board's wriggliness score
   if (TWO_PEN) setupTwoPen();         // build snake A/B label maps + centre
   solved = false;
   Attempts.reset();
@@ -2962,13 +2963,50 @@ function drawPath() {
   overlay.appendChild(line);
 }
 
+// ─── Wriggliness scoring (Game-Definition §15) ──────
+// The competitive score for a completed board: the number of direction changes
+// (turns) along the solution. One-pen counts the single path; two-pen sums both
+// snakes (the kiss is each snake's endpoint, so it is never an interior turn).
+// We keep a per-board personal best (fewest) and "most" in local storage, keyed
+// by the board's defining settings, so players can chase a least-/most-wriggly
+// target on the exact same board.
+let lastWrig = null;     // {turns, best, most} for the current solve, or null
+
+function solutionTurns() {
+  if (TWO_PEN) {
+    if (!penPaths[0].length || !penPaths[1].length) return 0;
+    return solutionWriggliness(penPaths[0]) + solutionWriggliness(penPaths[1]);
+  }
+  return solutionWriggliness(path);
+}
+function wrigBoardKey() {
+  return 'trace:wrig:' + [sizeToken(), TWO_PEN ? 't' : '1', WIGGLE, WALLS, POINTS, BX, SEED].join(':');
+}
+function recordWriggliness(turns) {
+  const rec = { best: turns, most: turns };
+  try {
+    const raw = localStorage.getItem(wrigBoardKey());
+    if (raw) { const o = JSON.parse(raw); rec.best = Math.min(o.best, turns); rec.most = Math.max(o.most, turns); }
+    localStorage.setItem(wrigBoardKey(), JSON.stringify(rec));
+  } catch (e) { /* storage unavailable — degrade to this run only */ }
+  return rec;
+}
+// "Solved" line, enriched with the wriggliness score when we have one.
+function solvedLabel() {
+  if (!lastWrig) return 'Solved';
+  let msg = `Solved · ${lastWrig.turns} turns`;
+  if (lastWrig.best < lastWrig.turns)      msg += ` · fewest ${lastWrig.best}`;
+  else if (lastWrig.most > lastWrig.turns) msg += ` · most ${lastWrig.most}`;
+  return msg;
+}
+
 function updateStatus() {
   if (TWO_PEN) {
     const drawn = penPaths[0].length + penPaths[1].length - (
       (penHeadIsCentre(0) && penHeadIsCentre(1)) ? 1 : 0);   // don't double-count a shared kiss
     progressEl.textContent = `${Math.max(0, drawn)} / ${playableCount()}`;
     if (solved) {
-      statusEl.textContent = 'Solved';
+      statusEl.textContent = solvedLabel();
       statusEl.classList.add('solved'); boardWrap.classList.add('solved');
     } else {
       boardWrap.classList.remove('solved'); statusEl.classList.remove('solved');
@@ -2980,7 +3018,7 @@ function updateStatus() {
   }
   progressEl.textContent = `${path.length} / ${playableCount()}`;
   if (solved) {
-    statusEl.textContent = 'Solved';
+    statusEl.textContent = solvedLabel();
     statusEl.classList.add('solved');
     boardWrap.classList.add('solved');
   } else {
@@ -3029,6 +3067,11 @@ function checkSolved() {
 function refresh() {
   const wasSolved = solved;
   solved = checkSolved();
+  if (solved && !wasSolved) {           // score the solve before the status renders
+    const t = solutionTurns();
+    lastWrig = recordWriggliness(t);
+    lastWrig.turns = t;
+  }
   drawPath();
   updateStatus();
   if (typeof HintSystem !== 'undefined') HintSystem.onPathChange();

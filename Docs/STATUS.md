@@ -5,8 +5,8 @@ flatten:end -->
 
 # Trace — Status & Resilience Review
 
-**Checkpoint: 2026-06-12 (zip-game) · 2026-06-08 (platform)** — the zip-game
-**Application** section was refreshed 2026-06-12 (blanked-cell symmetry feature);
+**Checkpoint: 2026-06-13 (zip-game) · 2026-06-08 (platform)** — the zip-game
+**Application** section was refreshed 2026-06-13 (multiple-solutions model, v0.40.0);
 the **Infrastructure** sections are as of 2026-06-08. Note: the newly-built MariaDB, backups,
 WordPress (LEMP), and Cloudflare manifests are **authored but not yet
 deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
@@ -21,6 +21,23 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, v0.40.0):** **Multiple solutions are now allowed** — the
+  game no longer enforces a unique solution. Generation stopped adding walls for
+  uniqueness and dropped the uniqueness solve entirely; it just lays the ordered
+  nodes along one real Hamiltonian path (≥1 solution guaranteed by construction).
+  That removed the solver from the generation hot path and **cut 9×9 generation from
+  ~21s to ~2s** — the latency item is effectively closed. Play reframes around
+  *choosing among* solutions: **wriggliness** competitions (fewest/most direction
+  changes) and admin-curated **find-the-shape** challenges. Win-detection needed no
+  change (it already accepted any path covering every non-blank cell and threading
+  the nodes in order). Knock-ons: the two-pen rolled blank is now confined to the
+  bottom-left quadrant (subsuming the old three-corner exclusion); walls (`m`) keep
+  only their difficulty/variety role (plus solution-space sculpting for the admin
+  tool); added a `solutionWriggliness()` measure; `DIFFICULTY` now drives only the
+  auto node count. Headless-validated across all 34 configs (validity, blank rules
+  incl. two-pen-in-quadrant, brute-force automorphism check, round-trip determinism,
+  timing). The authoritative spec is now **`Docs/New-game-definition.md`**. **Not yet
+  browser-play-tested.** See DECISIONS 2026-06-13.
 - **Zip-game (2026-06-12):** Added **blanked-off cells** that break the board's
   symmetry, so rotations/reflections can't mint twin solutions — headless-validated
   across all 34 configs (incl. a brute-force automorphism check, uniqueness,
@@ -109,18 +126,29 @@ returns.
   off the anti-diagonal on squares). The rolled cell's index is pinned to the URL as
   **`bx`**, and two blanks keep the two-pen playable count odd so the centre kiss
   survives.
-- **Generation:** a hole-aware seed search (**`findHoledHamiltonian`** — Warnsdorff
-  ordering + connectivity prune + leaf prune over the *playable* cells) finds a
+- **Generation (v0.40.0):** a hole-aware seed search (**`findHoledHamiltonian`** —
+  Warnsdorff + connectivity prune + leaf prune over the *playable* cells) finds a
   Hamiltonian path that skips the blanked cells; small squares keep that path
   directly, larger and rectangular configs mix it with a hole-aware backbite. The
-  solver, walls, and win-detection all count `playableCount()`. Generation is bounded
-  by **deterministic node budgets** with no wall-clock branching, so a given seed +
-  `bx` reproduces the exact same puzzle on any machine, under any load. **The
-  blanked-cell feature broke byte-identical legacy reproduction** for all grids
-  (accepted — see DECISIONS 2026-06-12). 9×9 (81 cells) is still the unique-solution
-  frontier — now ~5–9s and the subject of a pending keep / exclude / raise-points call
-  (§6); `newPuzzle` re-rolls the seed up to 3× (fresh puzzles only) before a trivial
-  fallback. ≤7×7 stays fast.
+  ordered nodes are laid along that path, so **≥1 solution is guaranteed by
+  construction**. Boards may now have **many** solutions — **uniqueness is no longer
+  enforced** and the uniqueness solver is out of the generation path entirely, which
+  cut 9×9 generation from ~21s to **~2s**. Generation is wall-clock-free, so a given
+  seed + settings (`size`, `pts`, `w`, `m`, `bx`) reproduces the exact board on any
+  machine. Byte-identical legacy reproduction is not preserved (accepted — DECISIONS
+  2026-06-12 / 2026-06-13). The solver, walls, and win-detection all count
+  `playableCount()`. (`enforceUniqueness`/`classify` and the node-budget caps remain
+  in the source but unused by generation — `enforceUniqueness` is the basis for the
+  planned admin solution-enumerator.)
+- **Solutions & scoring (v0.40.0):** a board may admit many valid paths; players
+  compete on **wriggliness** — the number of direction changes (fewest, or most).
+  Win-detection accepts *any* path that covers every non-blank cell and threads the
+  numbered nodes in order, so every valid route wins. A `solutionWriggliness()`
+  measure exists in the client; the player-facing wriggliness display/scoring is the
+  active **v0.41.0** work. An admin **find-the-shape** mode (pick an exact path —
+  "the fish" — validated by exact match) and an offline solution **enumerator**
+  (bounded by a solution cap, since counts explode on lightly-noded boards) are
+  planned for the admin back-end. Authoritative spec: `Docs/New-game-definition.md`.
 - **Onboarding flow:** the real puzzle is generated up front but hidden; on load
   the player sees a **sample backdrop** (a finished example, or their last solve)
   so the puzzle can't be studied before the timer. The first tap reveals a small
@@ -347,12 +375,16 @@ backups are actually running and a restore has been proven.
 - **Browser play-test** of the new client features — rectangle rendering, two-snake
   visuals + the `diffshades` uniform shade reading as genuinely ambiguous, the dice /
   "Surprise me" controls, **the blanked-off cells (one-pen and two-pen) rendering as
-  clear holes and feeling fair to play around**, and the 9×9 feel on a real device.
-  (All current validation is headless.)
-- **Decide the 9×9 strategy** — keep as-is, exclude it, or raise its minimum point
-  count — once it's been played. 9×9 generation is now deterministic and ~5–9s (down
-  from ~21s); the residual cost is per-puzzle solver variance, not the old wall-clock
-  cap. (See `DECISIONS.md` 2026-06-07 + 2026-06-12.)
+  clear holes and feeling fair to play around**, the 9×9 feel on a real device, and
+  **how a multiple-solution board feels** without the "one right answer" framing
+  (v0.40.0). (All current validation is headless.)
+- **9×9 latency — resolved (v0.40.0):** dropping uniqueness enforcement took 9×9
+  generation from ~21s to ~2s, so the earlier keep / exclude / raise-points decision
+  is no longer forced by performance. Any remaining call on 9×9 is now purely about
+  *feel*, to be made during play-test. (See `DECISIONS.md` 2026-06-13.)
+- **Wriggliness scoring (in progress, v0.41.0):** surface each solution's
+  wriggliness to the player and support fewest/most-wriggly competition; the
+  `solutionWriggliness()` measure already exists.
 
 **Platform / other:**
 

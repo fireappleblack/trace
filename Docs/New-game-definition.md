@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/New-game-definition.md
-     generated: 2026-06-13T19:54:54Z by flatten.py — do not edit this block
+     generated: 2026-06-13T21:50:00Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Game Definition (v0.40.0)
