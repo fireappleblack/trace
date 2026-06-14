@@ -28,6 +28,7 @@ Routes:
   Leaderboards (phase 2)
     GET  /api/leaderboard/puzzle?seed=&size=&difficulty=
     GET  /api/leaderboard/daily[?date=YYYY-MM-DD]
+    GET  /api/leaderboard/wriggliness?board_key=   → fewest/most-wriggly per board
     GET  /api/daily                     → today's daily puzzle metadata
 
   Aggregates + insights (phase 3 + 4)
@@ -295,6 +296,20 @@ def daily_route():
     date_str = request.args.get('date')
     daily = DB.get_or_create_daily(g.conn, db.backend, db.placeholder, date_str)
     return jsonify(daily)
+
+
+@app.route('/api/leaderboard/wriggliness')
+def leaderboard_wriggliness_route():
+    """Least-/most-wriggly standings for one board, keyed by its board_key."""
+    board_key = request.args.get('board_key')
+    if not board_key:
+        return jsonify({'error': 'board_key required'}), 400
+    try:
+        limit = min(int(request.args.get('limit', 50)), 200)
+    except (TypeError, ValueError):
+        limit = 50
+    result = DB.leaderboard_wriggliness(g.conn, db.backend, db.placeholder, board_key, limit)
+    return jsonify({'board_key': board_key, **result})
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -56,6 +56,7 @@ ALLOWED_ATTEMPT_COLUMNS = {
     'started_at', 'completed_at', 'duration_ms',
     'moves', 'backtracks', 'undos', 'clears', 'solved', 'cheated',
     'is_public', 'env_verified', 'tos_version', 'client_version',
+    'turns', 'board_key',
     'latitude', 'longitude', 'location_label',
     'local_time_iso', 'sunrise_iso', 'sunset_iso',
     'weather_temp_c', 'weather_condition', 'weather_wind_kmh',
@@ -394,6 +395,8 @@ ATTEMPTS_V2_COLUMNS = [
     ('tos_version',  'INTEGER NOT NULL DEFAULT 1', 'INTEGER NOT NULL DEFAULT 1'),
     ('cheated',      'INTEGER NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
     ('client_version', 'TEXT', 'TEXT'),
+    ('turns',        'INTEGER', 'INTEGER'),
+    ('board_key',    'TEXT', 'TEXT'),
 ]
 
 def init_schema(conn, backend, schema_path=None):
@@ -710,6 +713,12 @@ def insert_attempt(conn, backend, placeholder, data):
     if clean.get('client_version') is not None:
         clean['client_version'] = str(clean['client_version'])[:64]
 
+    # board_key is also untrusted client text (the board identity used to group
+    # the wriggliness leaderboard). Bound it so a hostile client can't write a
+    # huge blob; the parameterised INSERT already neutralises injection.
+    if clean.get('board_key') is not None:
+        clean['board_key'] = str(clean['board_key'])[:200]
+
     # If is_public wasn't sent, default from the user's profile.
     if 'is_public' not in clean:
         user = get_user(conn, backend, placeholder, clean['user_id'])
@@ -902,6 +911,43 @@ def leaderboard_daily(conn, backend, placeholder, date_str=None, limit=50):
         daily['seed'], daily['size'], daily['difficulty'], limit
     )
     return {'puzzle': daily, 'rows': rows}
+
+
+def leaderboard_wriggliness(conn, backend, placeholder, board_key, limit=50):
+    """
+    Wriggliness leaderboard for ONE board (identified by its full board_key).
+    Returns two lists — `fewest` (least-wriggly solves, ascending) and `most`
+    (most-wriggly, descending) — one row per user (their personal extreme).
+    Only public, solved, non-cheated attempts that actually carry a turn count.
+    """
+    def _board_extreme(agg, order):
+        cur = cursor(conn, backend)
+        cur.execute(f"""
+            SELECT
+                u.display_name,
+                a.user_id,
+                {agg}(a.turns)    AS turns,
+                COUNT(*)          AS attempt_count,
+                MAX(a.created_at) AS last_attempt_at
+            FROM attempts a
+            JOIN users u ON u.user_id = a.user_id
+            WHERE a.board_key = {placeholder}
+              AND a.solved = 1
+              AND a.is_public = 1
+              AND a.cheated = 0
+              AND a.turns IS NOT NULL
+            GROUP BY a.user_id, u.display_name
+            ORDER BY turns {order}
+            LIMIT {placeholder}
+        """, (board_key, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        return rows
+
+    return {
+        'fewest': _board_extreme('MIN', 'ASC'),
+        'most':   _board_extreme('MAX', 'DESC'),
+    }
 
 
 # ═════════════════════════════════════════════════════════════════════════

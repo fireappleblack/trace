@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- flatten:begin
      repo-path: trace.html
-     generated: 2026-06-08T22:02:12Z by flatten.py — do not edit this block
+     generated: 2026-06-13T22:03:47Z by flatten.py — do not edit this block
 flatten:end -->
 
 <html lang="en">
@@ -1749,7 +1749,7 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = '0.41.0';
+const TRACE_VERSION = 'v0.42.0';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
@@ -2733,6 +2733,8 @@ async function newPuzzle(opts) {
   hideLoader();
   updateURL();
   updateSeedDisplay();
+  syncDiffShadesUI();   // re-assert the two-pen "Shades" row visibility every
+                        // generation, so it can never be left stale/hidden
   render();
 }
 
@@ -2979,8 +2981,15 @@ function solutionTurns() {
   }
   return solutionWriggliness(path);
 }
+function boardSignature() {
+  // Full board identity for the new multiple-solutions model. (seed, size,
+  // difficulty) no longer names a board on its own, since mode/wiggle/walls/
+  // points/blank also vary. Used as the local wriggliness key AND the server
+  // leaderboard board_key, so a personal best and the global board agree.
+  return [sizeToken(), TWO_PEN ? 't' : '1', WIGGLE, WALLS, POINTS, BX, SEED].join(':');
+}
 function wrigBoardKey() {
-  return 'trace:wrig:' + [sizeToken(), TWO_PEN ? 't' : '1', WIGGLE, WALLS, POINTS, BX, SEED].join(':');
+  return 'trace:wrig:' + boardSignature();
 }
 function recordWriggliness(turns) {
   const rec = { best: turns, most: turns };
@@ -3686,6 +3695,8 @@ const Attempts = (function() {
       clears: counters.clears,
       cheated: cheatUsed ? 1 : 0,
       solved: 1,
+      turns: solutionTurns(),         // wriggliness of the solved path (the score)
+      board_key: boardSignature(),    // full board identity for the leaderboard
       client_version: TRACE_VERSION   // provenance only — logged, never trusted
     };
   }
@@ -3756,6 +3767,8 @@ const DB = (function() {
       env_verified INTEGER NOT NULL DEFAULT 0,
       tos_version INTEGER NOT NULL DEFAULT 1,
       client_version TEXT,              -- build tag of the client that logged it (untrusted)
+      turns INTEGER,                    -- wriggliness of the solved path (v0.42.0)
+      board_key TEXT,                   -- full board identity for the leaderboard (v0.42.0)
       -- Environmental context, fetched at save time
       latitude REAL,
       longitude REAL,
@@ -3800,6 +3813,8 @@ const DB = (function() {
     "ALTER TABLE attempts ADD COLUMN tos_version INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE attempts ADD COLUMN cheated INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE attempts ADD COLUMN client_version TEXT",
+    "ALTER TABLE attempts ADD COLUMN turns INTEGER",
+    "ALTER TABLE attempts ADD COLUMN board_key TEXT",
   ];
   function runMigrations() {
     for (const stmt of MIGRATIONS_V2) {
@@ -4925,26 +4940,62 @@ const Leaderboard = (function() {
   async function renderPuzzle() {
     pane.innerHTML = `<div class="lb-empty">Loading…</div>`;
     try {
-      const url = `/api/leaderboard/puzzle?seed=${encodeURIComponent(SEED)}&size=${sizeToken()}&difficulty=${DIFFICULTY}&limit=50`;
-      const data = await fetchJSON(url);
-      const meta = `Seed <strong>${data.seed}</strong> · ${data.size}×${data.size} · ${data.difficulty}`;
-      if (!data.rows.length) {
-        pane.innerHTML = `<div class="lb-puzzle-meta">${meta}</div><div class="lb-empty">No one's logged a public solve on this puzzle yet.<br>Solve it and check "Make this attempt public" to be first.</div>`;
-        return;
+      const meta = `Seed <strong>${SEED}</strong> · ${ROWS}×${COLS} · ${DIFFICULTY}${TWO_PEN ? ' · two snakes' : ''}`;
+      // Fastest times — keyed by (seed, size, difficulty), as before.
+      let timesHtml;
+      try {
+        const url = `/api/leaderboard/puzzle?seed=${encodeURIComponent(SEED)}&size=${sizeToken()}&difficulty=${DIFFICULTY}&limit=50`;
+        const data = await fetchJSON(url);
+        if (!data.rows.length) {
+          timesHtml = `<div class="lb-empty">No public solves logged on this puzzle yet.<br>Solve it and tick "Make this attempt public" to be first.</div>`;
+        } else {
+          timesHtml = data.rows.map((r, i) =>
+            `<div class="lb-row">
+              <div class="lb-rank ${i < 3 ? 'top' : ''}">${i + 1}</div>
+              <div>
+                <div class="lb-name">${r.display_name || 'anonymous'}</div>
+                <div class="lb-meta">${r.best_moves} moves · ${r.best_backtracks} bt · ${r.attempt_count} attempt${r.attempt_count === 1 ? '' : 's'}</div>
+              </div>
+              <div class="lb-time">${fmtTime(r.best_ms)}</div>
+            </div>`
+          ).join('');
+        }
+      } catch (e) {
+        timesHtml = `<div class="lb-empty">Couldn't load times: ${e.message}</div>`;
       }
-      const rows = data.rows.map((r, i) =>
-        `<div class="lb-row">
-          <div class="lb-rank ${i < 3 ? 'top' : ''}">${i + 1}</div>
-          <div>
-            <div class="lb-name">${r.display_name || 'anonymous'}</div>
-            <div class="lb-meta">${r.best_moves} moves · ${r.best_backtracks} bt · ${r.attempt_count} attempt${r.attempt_count === 1 ? '' : 's'}</div>
-          </div>
-          <div class="lb-time">${fmtTime(r.best_ms)}</div>
-        </div>`
-      ).join('');
-      pane.innerHTML = `<div class="lb-puzzle-meta">${meta}</div>${rows}`;
+      // Wriggliness (v0.42.0) — keyed by the full board_key, so it tracks THIS
+      // exact board (mode/wiggle/walls/points/blank included), not just the seed.
+      const wrigHtml = await renderWrigSection();
+      pane.innerHTML =
+        `<div class="lb-puzzle-meta">${meta}</div>` +
+        `<div class="lb-puzzle-meta" style="margin-top:12px;">Fastest</div>${timesHtml}${wrigHtml}`;
     } catch (e) {
       pane.innerHTML = `<div class="lb-empty">Couldn't load leaderboard: ${e.message}</div>`;
+    }
+  }
+
+  function wrigList(list) {
+    if (!list || !list.length) return `<div class="lb-empty">No public solves yet.</div>`;
+    return list.map((r, i) =>
+      `<div class="lb-row">
+        <div class="lb-rank ${i < 3 ? 'top' : ''}">${i + 1}</div>
+        <div>
+          <div class="lb-name">${r.display_name || 'anonymous'}</div>
+          <div class="lb-meta">${r.attempt_count} attempt${r.attempt_count === 1 ? '' : 's'}</div>
+        </div>
+        <div class="lb-time">${r.turns} turn${r.turns === 1 ? '' : 's'}</div>
+      </div>`
+    ).join('');
+  }
+
+  async function renderWrigSection() {
+    try {
+      const url = `/api/leaderboard/wriggliness?board_key=${encodeURIComponent(boardSignature())}&limit=50`;
+      const data = await fetchJSON(url);
+      return `<div class="lb-puzzle-meta" style="margin-top:14px;">Least wriggly</div>${wrigList(data.fewest)}` +
+             `<div class="lb-puzzle-meta" style="margin-top:14px;">Most wriggly</div>${wrigList(data.most)}`;
+    } catch (e) {
+      return `<div class="lb-puzzle-meta" style="margin-top:14px;">Wriggliness</div><div class="lb-empty">Couldn't load: ${e.message}</div>`;
     }
   }
 

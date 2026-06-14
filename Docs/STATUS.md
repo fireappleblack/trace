@@ -6,7 +6,7 @@ flatten:end -->
 # Trace — Status & Resilience Review
 
 **Checkpoint: 2026-06-13 (zip-game) · 2026-06-08 (platform)** — the zip-game
-**Application** section was refreshed 2026-06-13 (multiple-solutions model + wriggliness scoring, v0.41.0);
+**Application** section was refreshed 2026-06-13 (multiple-solutions model + wriggliness scoring + server leaderboard, v0.42.0);
 the **Infrastructure** sections are as of 2026-06-08. Note: the newly-built MariaDB, backups,
 WordPress (LEMP), and Cloudflare manifests are **authored but not yet
 deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
@@ -21,6 +21,19 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, v0.42.0):** **Server-side wriggliness leaderboard** landed.
+  Attempts now record `turns` (the wriggliness score) and a full `board_key` (board
+  identity incl. mode/wiggle/walls/points/blank, since `(seed,size,difficulty)` no
+  longer names a board), both client-side (in-browser SQLite) and on the server
+  (`attempts` columns, additive migration). New endpoint
+  `GET /api/leaderboard/wriggliness?board_key=` returns per-board **fewest** and
+  **most** standings (one row per user, their personal extreme), reusing the existing
+  privacy model (public + opted-in `display_name`, `cheated=0`). The leaderboard pane
+  now shows Fastest + Least-/Most-wriggly for the current board. Also **hardened the
+  two-pen "Shades" (same-coloured node-set) control** — its visibility is now
+  re-asserted on every generation so it can't be left hidden. Validated: server
+  leaderboard query 7/7 (SQLite), client board_key/signature 7/7, generation +
+  measure + solve-integration unchanged. See DECISIONS 2026-06-13.
 - **Zip-game (2026-06-13, v0.41.0):** **Wriggliness scoring** landed. On solving, the
   status line shows `Solved · N turns` (N = direction changes), and on repeat solves
   of the same board adds `· fewest M` / `· most M` from a per-board best/most kept in
@@ -154,7 +167,9 @@ returns.
   v0.41.0**: the solved line shows `Solved · N turns`, with a per-board best (fewest)
   and most kept in local storage (`· fewest M` / `· most M` on repeat solves);
   one-pen scores the path, two-pen sums both snakes. A **server-side leaderboard**
-  for cross-player competition is still to come. An admin **find-the-shape** mode
+  (v0.42.0) records `turns` + `board_key` on each attempt and serves per-board
+  fewest/most standings via `/api/leaderboard/wriggliness`, shown in the leaderboard
+  pane alongside the fastest times. An admin **find-the-shape** mode
   (pick an exact path — "the fish" — validated by exact match) and an offline
   solution **enumerator** (bounded by a solution cap, since counts explode on
   lightly-noded boards) are planned for the admin back-end. Authoritative spec:
@@ -392,10 +407,10 @@ backups are actually running and a restore has been proven.
   generation from ~21s to ~2s, so the earlier keep / exclude / raise-points decision
   is no longer forced by performance. Any remaining call on 9×9 is now purely about
   *feel*, to be made during play-test. (See `DECISIONS.md` 2026-06-13.)
-- **Wriggliness scoring — landed (v0.41.0):** each solution's turn-count is shown on
-  solve, with a per-board best/most in local storage. **Remaining:** a server-side
-  leaderboard so players compete across devices on fewest/most-wriggly (an `app.py`
-  + API task, not yet started).
+- **Wriggliness leaderboard — landed (v0.42.0):** each solution's turn-count is shown on
+  solve (per-board best/most in local storage), and a server-side leaderboard
+  (`turns` + `board_key` on attempts, `/api/leaderboard/wriggliness`) ranks fewest/most
+  across devices, reusing the public/opt-in privacy model. Shown in the leaderboard pane.
 
 **Platform / other:**
 
