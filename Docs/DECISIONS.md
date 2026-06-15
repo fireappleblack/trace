@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-12T22:19:14Z by flatten.py — do not edit this block
+     generated: 2026-06-15T20:33:57Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -29,6 +29,9 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
   decision under `decisions/`. Not needed yet.)*
 
 ---
+
+### 2026-06-13 [zip-game] — Plain-language insights copy; v0.42.1
+**Decision:** the leaderboard insight panes used statistician shorthand (`n=12`, "suppressed", "contributors") that confused at least one young player. Reworded for a general/family audience without changing any data or thresholds: Personal & Global show `12 games` (+ a tooltip) instead of `n=12`; Personal gained a one-line explainer that each bar is the player's median and the count is its sample size; Insights gained a short intro line, a Min-samples tooltip, and friendlier privacy wording ("hidden for privacy" rather than "suppressed"). Copy/label only — no logic, metrics, or privacy thresholds touched. Validated: syntax + board_key/signature (7/7) + solve-integration (13/13) re-run clean.
 
 ### 2026-06-13 [zip-game] — Server-side wriggliness leaderboard; v0.42.0
 **Decision:** rank players by solution wriggliness per board, server-side. Recorded `turns` (the §15 score) and a full `board_key` on the existing `attempts` row rather than a new table — this reuses the attempt-ingest path, the privacy model (public + opted-in `display_name`), and the `cheated=0` filter for free. `board_key` is the client's `boardSignature()` = `[sizeToken, mode, wiggle, walls, points, bx, seed]` (the same signature behind the local wriggliness key, minus the `trace:wrig:` prefix). It is needed because under the multiple-solutions model `(seed,size,difficulty)` no longer names a board — mode/wiggle/walls/points/blank also vary. Both columns are additive (nullable; migrated via the existing `ALTER`-in-`try/except` pass) on both the server `attempts` table and the in-browser SQLite mirror, so old rows and pre-v0.42 clients are unaffected. New endpoint `GET /api/leaderboard/wriggliness?board_key=` returns `{fewest, most}`, one row per user (their MIN / MAX turns), among public solved non-cheated attempts that carry a turn count. `board_key` is clamped to 200 chars server-side (untrusted client text, like `client_version`). **Also:** hardened the two-pen *Shades* (same-coloured node-set) control by re-asserting `syncDiffShadesUI()` at the end of every `newPuzzle()` — the control was already fully present/wired in source, so a "missing control" in play is most likely a **stale deployed image** (predating it), which the GHCR redeploy should resolve. **Refs:** `Docs/New-game-definition.md` §15. Validated: server leaderboard query 7/7 (SQLite — ordering, per-user extreme, private/cheat/unsolved/other-board exclusion); client board_key/signature 7/7; generation (1046+497) + measure (5/5) + solve-integration (13/13) unchanged.

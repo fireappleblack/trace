@@ -1,6 +1,6 @@
 # flatten:begin
 # repo-path: trace-server/db.py
-# generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+# generated: 2026-06-14T20:08:09Z by flatten.py — do not edit this block
 # flatten:end
 
 """

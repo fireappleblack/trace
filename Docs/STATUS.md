@@ -1,12 +1,12 @@
 <!-- flatten:begin
      repo-path: Docs/STATUS.md
-     generated: 2026-06-12T22:33:13Z by flatten.py — do not edit this block
+     generated: 2026-06-15T20:33:57Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Status & Resilience Review
 
 **Checkpoint: 2026-06-13 (zip-game) · 2026-06-08 (platform)** — the zip-game
-**Application** section was refreshed 2026-06-13 (multiple-solutions model + wriggliness scoring + server leaderboard, v0.42.0);
+**Application** section was refreshed 2026-06-13 (multiple-solutions model + wriggliness scoring + server leaderboard + plain-language insights copy, v0.42.1);
 the **Infrastructure** sections are as of 2026-06-08. Note: the newly-built MariaDB, backups,
 WordPress (LEMP), and Cloudflare manifests are **authored but not yet
 deployed/validated on the cluster** — recorded here and in `DECISIONS.md`, but
@@ -21,6 +21,13 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, v0.42.1):** **Plain-language leaderboard insights copy.**
+  Replaced the statistician shorthand `n=12` with `12 games` on the Personal and
+  Global panes (with a hover tooltip), added a one-line explainer on Personal ("each
+  bar is your median… the number is how many games it's based on"), gave Insights a
+  short intro line, softened the privacy notes ("hidden for privacy" rather than
+  "suppressed"), and added a Min-samples tooltip. Copy/label only — no logic touched;
+  syntax + board_key + solve-integration probes re-run clean.
 - **Zip-game (2026-06-13, v0.42.0):** **Server-side wriggliness leaderboard** landed.
   Attempts now record `turns` (the wriggliness score) and a full `board_key` (board
   identity incl. mode/wiggle/walls/points/blank, since `(seed,size,difficulty)` no

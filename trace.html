@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- flatten:begin
      repo-path: trace.html
-     generated: 2026-06-13T22:03:47Z by flatten.py — do not edit this block
+     generated: 2026-06-15T20:33:57Z by flatten.py — do not edit this block
 flatten:end -->
 
 <html lang="en">
@@ -1749,7 +1749,7 @@ flatten:end -->
 // console and attached to any client-side error report, but it is
 // CLIENT-CONTROLLED text — never trust or gate server logic on it, and don't
 // treat hiding it as a security control (the whole file is view-source anyway).
-const TRACE_VERSION = 'v0.42.0';
+const TRACE_VERSION = 'v0.42.1';
 try { window.TRACE_VERSION = TRACE_VERSION; } catch (e) {}
 
 // ─── Configuration ──────────────────────────────────
@@ -5067,7 +5067,7 @@ const Leaderboard = (function() {
           <div class="lb-rank">·</div>
           <div>
             <div class="lb-name">${s}×${s} ${d}</div>
-            <div class="lb-meta">n=${r.count} · p25 ${fmtTime(r.p25_ms)} · p75 ${fmtTime(r.p75_ms)}</div>
+            <div class="lb-meta">${r.count} game${r.count === 1 ? '' : 's'} · p25 ${fmtTime(r.p25_ms)} · p75 ${fmtTime(r.p75_ms)}</div>
           </div>
           <div class="lb-time">${fmtTime(r.median_ms)}</div>
         </div>`;
@@ -5087,7 +5087,8 @@ const Leaderboard = (function() {
         pane.innerHTML = `<div class="lb-empty">No solved attempts logged yet on this account.</div>`;
         return;
       }
-      let html = `<div class="lb-puzzle-meta">Your ${data.total_solved} solved attempt${data.total_solved === 1 ? '' : 's'}, sliced</div>`;
+      let html = `<div class="lb-puzzle-meta">Your ${data.total_solved} solved game${data.total_solved === 1 ? '' : 's'}, grouped</div>`
+        + `<div class="insight-note">Each bar is your median — your middle, typical time for that group. The number after it is how many of your games it's based on; more games means a steadier number.</div>`;
       Object.entries(data.slices).forEach(([col, groups]) => {
         html += `<div class="personal-slice"><h4>By ${col.replace(/_/g, ' ')}</h4>`;
         const entries = Object.entries(groups).sort((a, b) => a[1].median_ms - b[1].median_ms);
@@ -5098,7 +5099,7 @@ const Leaderboard = (function() {
             <div class="insight-bar-row">
               <div class="insight-bar-label">${label}</div>
               <div class="insight-bar-bg"><div class="insight-bar-fill" style="width:${pct}%;"></div></div>
-              <div class="insight-bar-v">${fmtTime(stats.median_ms)} <span style="color:var(--ink-soft); font-size:10px; font-weight:400;">·n=${stats.count}</span></div>
+              <div class="insight-bar-v">${fmtTime(stats.median_ms)} <span style="color:var(--ink-soft); font-size:10px; font-weight:400;" title="how many of your games this median is based on">${stats.count} game${stats.count === 1 ? '' : 's'}</span></div>
             </div>`;
         });
         html += `</div>`;
@@ -5135,6 +5136,7 @@ const Leaderboard = (function() {
     const sliceOpts = SLICE_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     const metricOpts = METRIC_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     return `
+      <div class="insight-note" style="margin-top:0;">Compare everyone's games by a factor you choose. Each bar groups all players' solves — pick what to slice by and which number to show.</div>
       <div class="insight-controls">
         <div>
           <label>Slice by</label>
@@ -5160,7 +5162,7 @@ const Leaderboard = (function() {
           </select>
         </div>
         <div>
-          <label>Min samples</label>
+          <label title="Hide any group with fewer players than this.">Min samples</label>
           <select class="form-sel" id="insightMinSamples">
             <option value="1">1+ (debug)</option><option value="5">5+</option>
             <option value="10">10+</option><option value="20" selected>20+ (default)</option>
@@ -5171,7 +5173,7 @@ const Leaderboard = (function() {
           <button class="btn primary" id="insightRunBtn" style="width: 100%;">Run</button>
         </div>
       </div>
-      <div class="insight-note">Groups with fewer contributors than the threshold are suppressed entirely to keep individuals un-identifiable. Lifestyle slices include only attempts from users who opted in to lifestyle aggregation.</div>
+      <div class="insight-note">To protect privacy, any group with fewer players than "Min samples" is hidden. Lifestyle factors only count people who opted in to sharing.</div>
       <div id="insightResults"></div>`;
   }
 
@@ -5194,7 +5196,7 @@ const Leaderboard = (function() {
       const entries = Object.entries(buckets);
       if (!entries.length) {
         const reason = data.buckets_below_threshold
-          ? `${data.buckets_below_threshold} group(s) had data but fewer than ${minSamples} contributors (suppressed for privacy).`
+          ? `${data.buckets_below_threshold} group(s) had data but fewer than ${minSamples} players (hidden for privacy).`
           : `No matching attempts.`;
         out.innerHTML = `<div class="lb-empty">No results. ${reason}</div>`;
         return;
@@ -5211,7 +5213,7 @@ const Leaderboard = (function() {
           <div class="insight-bar-bg"><div class="insight-bar-fill" style="width:${pct}%;"></div></div>
           <div class="insight-bar-v">${valFmt(value)}</div>
         </div>`;
-      }).join('') + `<div class="insight-note">${data.total_rows_considered} rows considered. ${data.buckets_below_threshold} group(s) suppressed.</div>`;
+      }).join('') + `<div class="insight-note">${data.total_rows_considered} games considered · ${data.buckets_below_threshold} small group(s) hidden for privacy.</div>`;
     } catch (e) {
       out.innerHTML = `<div class="lb-empty">Query failed: ${e.message}</div>`;
     }
