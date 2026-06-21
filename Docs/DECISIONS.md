@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
+     generated: 2026-06-21T16:36:54Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -29,6 +29,28 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
   decision under `decisions/`. Not needed yet.)*
 
 ---
+
+### 2026-06-21 [biglabel] — Unprivileged nginx image requires `--chown` on COPY'd files
+
+**Decision:** In `biglabel/Containerfile`, copy the config and content with
+`COPY --chown=101:0 …` rather than a plain `COPY`. Same applies to any future
+image built `FROM nginxinc/nginx-unprivileged`.
+
+**Why:** The unprivileged image runs as uid 101; a plain `COPY` lands files
+root-owned such that uid 101 is denied *reading* them, so nginx crash-loops at
+startup with `[emerg] open() "/etc/nginx/conf.d/default.conf" failed (13:
+Permission denied)`. (The "read-only file system?" line from the entrypoint is a
+harmless red herring — `readOnlyRootFilesystem: true` with the `/var/cache/nginx`
++ `/tmp` emptyDir mounts is fine and was kept.) `--chown=101:0` (nginx user, root
+group) gives the runtime user read access.
+
+**Notes:** Surfaced on the first live deploy (2026-06-21): image pulled fine,
+pods `CrashLoopBackOff` exit 1. Fixed in image `v0.1.1`. Bump the tag on rebuild
+(don't reuse `v0.1.0`) — the old image is cached on both nodes and a same-tag
+push won't reliably re-pull.
+
+**Refs:** `biglabel/Containerfile`; `biglabel/README.md` (Gotchas).
+Supersedes nothing.
 
 ### 2026-06-13 [biglabel] — New static app biglabel.saidtheape.com — nginx, not Flask
 

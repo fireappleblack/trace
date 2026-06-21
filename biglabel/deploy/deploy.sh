@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# flatten:begin
+# repo-path: biglabel/deploy/deploy.sh
+# generated: 2026-06-21T16:09:01Z by flatten.py — do not edit this block
+# flatten:end
+
 # ─────────────────────────────────────────────────────────────────────────
 # Build → push → roll out biglabel (static nginx). Same flow as trace's
 # deploy.sh, minus the DB. Run from the repo root.

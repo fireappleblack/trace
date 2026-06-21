@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/RESPONSIBILITY.md
-     generated: 2026-06-09T05:05:40Z by flatten.py — do not edit this block
+     generated: 2026-06-21T16:09:01Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Responsibility & Ownership

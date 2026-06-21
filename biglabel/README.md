@@ -1,3 +1,8 @@
+<!-- flatten:begin
+     repo-path: biglabel/README.md
+     generated: 2026-06-21T16:09:01Z by flatten.py — do not edit this block
+flatten:end -->
+
 # biglabel — static label/PDF generator (biglabel.saidtheape.com)
 
 A single-page app (`Biglabel.html`) that builds an order-label PDF with driver/
