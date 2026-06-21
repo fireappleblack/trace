@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<!-- flatten:begin
+     repo-path: trace-admin/admin.html
+     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
+flatten:end -->
+
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Trace · Admin</title>
+<style>
+  :root {
+    --bg: #1c1b19; --panel: #262421; --panel-2: #2f2c28; --ink: #ece7df;
+    --ink-soft: #a9a298; --line: #3a362f; --accent: #d8a657; --accent-ink: #1c1b19;
+    --danger: #c25b56; --ok: #8aa86b; --radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.45; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 80px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .8px;
+       color: var(--ink-soft); margin: 26px 0 10px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line);
+           background: var(--panel-2); color: var(--ink); border-radius: 8px;
+           padding: 7px 12px; }
+  button:hover { border-color: var(--ink-soft); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, textarea, select { font: inherit; background: var(--panel); color: var(--ink);
+           border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
+  textarea { resize: vertical; min-height: 38px; }
+  label { font-size: 12px; color: var(--ink-soft); display: block; margin-bottom: 3px; }
+
+  /* Login */
+  .login { max-width: 360px; margin: 14vh auto 0; background: var(--panel);
+           border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .login h1 { margin-bottom: 4px; }
+  .login .row { margin-top: 14px; }
+  .err { color: var(--danger); font-size: 13px; min-height: 18px; margin-top: 8px; }
+
+  /* Editor */
+  .row-card { background: var(--panel); border: 1px solid var(--line);
+              border-radius: var(--radius); padding: 12px; margin-bottom: 10px; }
+  .row-card.inactive { opacity: .6; }
+  .row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .key { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+         color: var(--accent); background: var(--panel-2); padding: 2px 7px; border-radius: 6px; }
+  .grid { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; align-items: start; }
+  .row-foot { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+  .inline { display: flex; align-items: center; gap: 6px; }
+  .inline input[type=checkbox] { width: auto; }
+  .inline input[type=number] { width: 80px; }
+  .spacer { flex: 1; }
+  .dirty-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+               display: none; }
+  .row-card.dirty .dirty-dot { display: inline-block; }
+  .add { border-style: dashed; }
+  #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+           background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+           padding: 9px 16px; border-radius: 999px; font-size: 13px; opacity: 0;
+           transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  #toast.bad { border-color: var(--danger); color: var(--danger); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<!-- Login view -->
+<div id="loginView" class="login hidden">
+  <h1>Trace · Admin</h1>
+  <div class="muted">Sign in to manage the site.</div>
+  <div class="row">
+    <label for="user">Username</label>
+    <input id="user" type="text" autocomplete="username" />
+  </div>
+  <div class="row">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" />
+  </div>
+  <div class="row"><button id="loginBtn" class="primary" style="width:100%;">Sign in</button></div>
+  <div id="loginErr" class="err"></div>
+</div>
+
+<!-- Editor view -->
+<div id="editorView" class="wrap hidden">
+  <div class="topbar">
+    <div>
+      <h1 id="viewTitle">UI text</h1>
+      <div class="muted" id="viewSub">Edit the welcome-banner phrases, consent / data-protection card, ToS and FAQ. Changes are live on save.</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+      <span class="key" id="whoami"></span>
+      <button id="navText">UI text</button>
+      <button id="navAccounts" class="hidden">Accounts</button>
+      <button id="pwBtn">Password</button>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </div>
+  <div id="editor"></div>
+  <div id="accounts" class="hidden"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let CSRF = null;
+  let ROLE = null;
+  const rank = (r) => ({ cleric: 1, admin: 2, superadmin: 3 }[r] || 0);
+
+  // Friendly names + ordering for the known categories (others fall through).
+  const CAT_LABELS = {
+    welcome_banner: "Welcome-banner phrases",
+    consent_card:   "Consent / data-protection card",
+    tos:            "Terms of service",
+    faq:            "FAQ",
+  };
+  const CAT_ORDER = ["welcome_banner", "consent_card", "tos", "faq"];
+
+  async function api(method, path, body) {
+    const opts = { method, credentials: "same-origin", headers: {} };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    if (method !== "GET" && CSRF) opts.headers["X-CSRF-Token"] = CSRF;
+    const res = await fetch(path, opts);
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error((data && data.error) || (res.status + " " + res.statusText));
+    return data;
+  }
+
+  function toast(msg, bad) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.toggle("bad", !!bad);
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  function show(view) {
+    $("loginView").classList.toggle("hidden", view !== "login");
+    $("editorView").classList.toggle("hidden", view !== "editor");
+  }
+
+  function showPane(pane) {
+    $("editor").classList.toggle("hidden", pane !== "text");
+    $("accounts").classList.toggle("hidden", pane !== "accounts");
+    $("viewTitle").textContent = pane === "accounts" ? "Accounts" : "UI text";
+    $("viewSub").textContent = pane === "accounts"
+      ? "Create admin accounts and assign roles. Cleric = wording · Admin = game design · Superadmin = everything."
+      : "Edit the welcome-banner phrases, consent / data-protection card, ToS and FAQ. Changes are live on save.";
+  }
+
+  function applyRole() {
+    $("whoami").textContent = (ROLE || "") ;
+    $("navAccounts").classList.toggle("hidden", ROLE !== "superadmin");
+  }
+
+  // ── Login ──
+  async function doLogin() {
+    $("loginErr").textContent = "";
+    const username = $("user").value.trim();
+    const password = $("pw").value;
+    if (!username || !password) { $("loginErr").textContent = "Enter username and password."; return; }
+    $("loginBtn").disabled = true;
+    try {
+      const r = await api("POST", "/api/login", { username, password });
+      CSRF = r.csrf; ROLE = r.role;
+      $("pw").value = "";
+      applyRole();
+      showPane("text");
+      await loadEditor();
+    } catch (e) {
+      $("loginErr").textContent = (e.message || "").startsWith("401") ? "Wrong username or password." : e.message;
+    } finally {
+      $("loginBtn").disabled = false;
+    }
+  }
+
+  async function doLogout() {
+    try { await api("POST", "/api/logout"); } catch (e) {}
+    CSRF = null; ROLE = null;
+    show("login");
+    $("user").focus();
+  }
+
+  // ── Change my password ──
+  async function changeMyPassword() {
+    const current = prompt("Current password:");
+    if (current === null) return;
+    const next = prompt("New password (8+ characters):");
+    if (next === null) return;
+    try {
+      await api("POST", "/api/me/password", { current, new: next });
+      toast("Password changed");
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ── Editor ──
+  function rowCard(row) {
+    const card = document.createElement("div");
+    card.className = "row-card" + (row.active ? "" : " inactive");
+    card.dataset.id = row.id;
+    card.innerHTML = `
+      <div class="row-head">
+        <span class="dirty-dot" title="unsaved changes"></span>
+        <span class="key">${row.text_key || "(no key)"}</span>
+        <span class="muted">#${row.id}</span>
+      </div>
+      <textarea class="f-body" rows="2"></textarea>
+      <div class="row-foot">
+        <label class="inline">Order <input type="number" class="f-sort" step="1" /></label>
+        <label class="inline"><input type="checkbox" class="f-active" /> active</label>
+        <span class="spacer"></span>
+        <button class="f-save primary" disabled>Save</button>
+        <button class="f-del danger">Delete</button>
+      </div>`;
+    const body = card.querySelector(".f-body");
+    const sort = card.querySelector(".f-sort");
+    const active = card.querySelector(".f-active");
+    const save = card.querySelector(".f-save");
+    body.value = row.body;
+    sort.value = row.sort_order;
+    active.checked = !!row.active;
+
+    const markDirty = () => {
+      const dirty = body.value !== row.body
+        || String(sort.value) !== String(row.sort_order)
+        || active.checked !== !!row.active;
+      card.classList.toggle("dirty", dirty);
+      save.disabled = !dirty;
+      card.classList.toggle("inactive", !active.checked);
+    };
+    body.addEventListener("input", markDirty);
+    sort.addEventListener("input", markDirty);
+    active.addEventListener("change", markDirty);
+
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try {
+        await api("PATCH", "/api/ui-text/" + row.id, {
+          body: body.value,
+          sort_order: parseInt(sort.value, 10) || 0,
+          active: active.checked ? 1 : 0,
+        });
+        row.body = body.value; row.sort_order = parseInt(sort.value, 10) || 0; row.active = active.checked ? 1 : 0;
+        card.classList.remove("dirty");
+        toast("Saved");
+      } catch (e) {
+        save.disabled = false;
+        toast(e.message, true);
+      }
+    });
+
+    card.querySelector(".f-del").addEventListener("click", async () => {
+      if (!confirm(`Delete "${row.text_key || row.id}"? This can't be undone.`)) return;
+      try {
+        await api("DELETE", "/api/ui-text/" + row.id);
+        card.remove();
+        toast("Deleted");
+      } catch (e) { toast(e.message, true); }
+    });
+    return card;
+  }
+
+  function addCard(category) {
+    const card = document.createElement("div");
+    card.className = "row-card add";
+    card.innerHTML = `
+      <div class="grid">
+        <label>Key</label><input class="n-key" placeholder="e.g. phrase_12" />
+        <label>Body</label><textarea class="n-body" rows="2" placeholder="The text shown in the app"></textarea>
+        <label>Order</label><input type="number" class="n-sort" value="0" step="1" />
+      </div>
+      <div class="row-foot">
+        <span class="spacer"></span>
+        <button class="n-add primary">Add to ${CAT_LABELS[category] || category}</button>
+      </div>`;
+    card.querySelector(".n-add").addEventListener("click", async () => {
+      const body = card.querySelector(".n-body").value;
+      if (!body.trim()) { toast("Body is required", true); return; }
+      try {
+        await api("POST", "/api/ui-text", {
+          category,
+          text_key: card.querySelector(".n-key").value || null,
+          body,
+          sort_order: parseInt(card.querySelector(".n-sort").value, 10) || 0,
+          active: 1,
+        });
+        toast("Added");
+        await loadEditor();
+      } catch (e) { toast(e.message, true); }
+    });
+    return card;
+  }
+
+  async function loadEditor() {
+    show("editor");
+    const host = $("editor");
+    host.textContent = "Loading…";
+    const { rows } = await api("GET", "/api/ui-text");
+    const byCat = {};
+    rows.forEach((r) => { (byCat[r.category] = byCat[r.category] || []).push(r); });
+    const cats = Object.keys(byCat).sort((a, b) => {
+      const ia = CAT_ORDER.indexOf(a), ib = CAT_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+    host.textContent = "";
+    cats.forEach((cat) => {
+      const h = document.createElement("h2");
+      h.textContent = CAT_LABELS[cat] || cat;
+      host.appendChild(h);
+      byCat[cat]
+        .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+        .forEach((r) => host.appendChild(rowCard(r)));
+      host.appendChild(addCard(cat));
+    });
+  }
+
+  // ── Accounts (superadmin) ──
+  async function loadAccounts() {
+    showPane("accounts");
+    const host = $("accounts");
+    host.textContent = "Loading…";
+    let data;
+    try { data = await api("GET", "/api/admins"); }
+    catch (e) { host.textContent = ""; toast(e.message, true); return; }
+    const roles = data.roles;
+    host.textContent = "";
+
+    // existing accounts
+    data.rows.forEach((u) => {
+      const card = document.createElement("div");
+      card.className = "row-card" + (u.active ? "" : " inactive");
+      const last = u.last_login_at ? new Date(u.last_login_at).toLocaleString() : "never";
+      card.innerHTML = `
+        <div class="row-head">
+          <span class="key">${u.username}</span><span class="muted">#${u.id} · last login ${last}</span>
+        </div>
+        <div class="row-foot">
+          <label class="inline">Role
+            <select class="a-role">${roles.map((r) => `<option value="${r}"${r===u.role?" selected":""}>${r}</option>`).join("")}</select>
+          </label>
+          <label class="inline"><input type="checkbox" class="a-active"${u.active?" checked":""}/> active</label>
+          <span class="spacer"></span>
+          <button class="a-pw">Reset password</button>
+          <button class="a-del danger">Delete</button>
+        </div>`;
+      const role = card.querySelector(".a-role");
+      const active = card.querySelector(".a-active");
+      const patch = async (body, revert) => {
+        try { await api("PATCH", "/api/admins/" + u.id, body); toast("Saved"); }
+        catch (e) { revert(); toast(e.message === "409 CONFLICT" ? "Can't remove the last superadmin" : e.message, true); }
+      };
+      role.addEventListener("change", () => patch({ role: role.value }, () => role.value = u.role));
+      active.addEventListener("change", () => patch({ active: active.checked }, () => active.checked = u.active)
+        .then(() => card.classList.toggle("inactive", !active.checked)));
+      card.querySelector(".a-pw").addEventListener("click", async () => {
+        const pw = prompt(`New password for ${u.username} (8+ chars):`);
+        if (pw === null) return;
+        try { await api("POST", `/api/admins/${u.id}/password`, { password: pw }); toast("Password reset"); }
+        catch (e) { toast(e.message, true); }
+      });
+      card.querySelector(".a-del").addEventListener("click", async () => {
+        if (!confirm(`Delete account "${u.username}"?`)) return;
+        try { await api("DELETE", "/api/admins/" + u.id); toast("Deleted"); loadAccounts(); }
+        catch (e) { toast(e.message === "409 CONFLICT" ? "Can't delete the last superadmin" : e.message, true); }
+      });
+      host.appendChild(card);
+    });
+
+    // create form
+    const add = document.createElement("div");
+    add.className = "row-card add";
+    add.innerHTML = `
+      <div class="grid">
+        <label>Username</label><input class="n-user" autocomplete="off" />
+        <label>Password</label><input class="n-pw" type="password" placeholder="8+ characters" />
+        <label>Role</label><select class="n-role">${roles.map((r) => `<option value="${r}"${r==="cleric"?" selected":""}>${r}</option>`).join("")}</select>
+      </div>
+      <div class="row-foot"><span class="spacer"></span><button class="n-add primary">Create account</button></div>`;
+    add.querySelector(".n-add").addEventListener("click", async () => {
+      const username = add.querySelector(".n-user").value.trim();
+      const password = add.querySelector(".n-pw").value;
+      const role = add.querySelector(".n-role").value;
+      if (!username || !password) { toast("Username and password required", true); return; }
+      try { await api("POST", "/api/admins", { username, password, role }); toast("Created"); loadAccounts(); }
+      catch (e) { toast(e.message, true); }
+    });
+    host.appendChild(add);
+  }
+
+  // ── Boot ──
+  async function boot() {
+    try {
+      const s = await api("GET", "/api/session");
+      if (s.authenticated) { CSRF = s.csrf; ROLE = s.role; applyRole(); showPane("text"); await loadEditor(); return; }
+    } catch (e) {}
+    show("login");
+    $("user").focus();
+  }
+
+  $("loginBtn").addEventListener("click", doLogin);
+  $("user").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pw").focus(); });
+  $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  $("logoutBtn").addEventListener("click", doLogout);
+  $("navText").addEventListener("click", () => { showPane("text"); loadEditor(); });
+  $("navAccounts").addEventListener("click", () => { if (ROLE === "superadmin") loadAccounts(); });
+  $("pwBtn").addEventListener("click", changeMyPassword);
+  boot();
+})();
+</script>
+</body>
+</html>

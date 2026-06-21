@@ -1,6 +1,6 @@
 -- flatten:begin
 -- repo-path: trace-server/schema.sql
--- generated: 2026-06-06T16:30:04Z by flatten.py — do not edit this block
+-- generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
 -- flatten:end
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -124,6 +124,14 @@ CREATE TABLE IF NOT EXISTS attempts (
     tos_version     INTEGER NOT NULL DEFAULT 1,
     client_version  TEXT,                        -- build tag of the client that logged it; untrusted, logged only
 
+    -- Wriggliness scoring (v0.42.0). turns = number of direction changes in the
+    -- solved path (the competitive score). board_key is the full board identity
+    -- for the new multiple-solutions model — (seed, size, difficulty) no longer
+    -- names a board on its own, since mode/wiggle/walls/points/blank also vary.
+    -- Both NULL for unsolved attempts or pre-v0.42 clients.
+    turns           INTEGER,
+    board_key       TEXT,
+
     -- Environmental context (all optional)
     latitude            REAL,
     longitude           REAL,
@@ -187,6 +195,28 @@ CREATE TABLE IF NOT EXISTS ui_text (
 
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- Admin accounts (admin v0.2.0) — used ONLY by the separate trace-admin
+-- service for multi-admin auth + roles. The public app never reads this table.
+-- role is a strict hierarchy: 'cleric' < 'admin' < 'superadmin'
+--   cleric     — edit site wording (ui_text)
+--   admin      — + game design (find-the-shape, future puzzle/daily config)
+--   superadmin — + account/role management (+ audit/logs, deferred)
+-- The env-seeded bootstrap superadmin (ADMIN_USERNAME/ADMIN_PASSWORD) is
+-- upserted at startup as break-glass; all other accounts live here.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'cleric',
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER,
+    updated_at    INTEGER,
+    last_login_at INTEGER
+);
+
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- Indices
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_attempts_user      ON attempts(user_id);
@@ -194,4 +224,5 @@ CREATE INDEX IF NOT EXISTS idx_attempts_puzzle    ON attempts(seed, size, diffic
 CREATE INDEX IF NOT EXISTS idx_attempts_created   ON attempts(created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_public    ON attempts(is_public, solved);
 CREATE INDEX IF NOT EXISTS idx_attempts_difficulty ON attempts(size, difficulty, solved);
+CREATE INDEX IF NOT EXISTS idx_attempts_wriggle    ON attempts(board_key, solved, is_public);
 CREATE INDEX IF NOT EXISTS idx_ui_text_lookup     ON ui_text(active, category, sort_order);

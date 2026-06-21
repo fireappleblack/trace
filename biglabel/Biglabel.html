@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Biglabel</title>
+
+  <!-- html2canvas + jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js">
+  </script>
+
+  <style>
+    /* ----- reset & base ----- */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #eef2f5;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .app {
+      max-width: 1100px;
+      width: 100%;
+      background: white;
+      border-radius: 2.5rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06);
+      padding: 2rem 2rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.8rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #0a2a38;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .input-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    textarea {
+      width: 100%;
+      height: 140px;
+      padding: 1rem 1.2rem;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.95rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 1.2rem;
+      background: #fafcfe;
+      resize: vertical;
+      line-height: 1.6;
+      transition: border 0.2s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #0077b6;
+      box-shadow: 0 0 0 3px rgba(0, 119, 182, 0.12);
+    }
+
+    .example-hint {
+      font-size: 0.85rem;
+      color: #4a6572;
+      background: #f0f4f8;
+      padding: 0.3rem 1rem;
+      border-radius: 2rem;
+      display: inline-block;
+      align-self: flex-start;
+    }
+
+    /* ----- controls grid ----- */
+    .controls {
+      background: #f8fafc;
+      border-radius: 1.8rem;
+      padding: 1.5rem 1.8rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1.2rem 0.8rem;
+      align-items: center;
+      border: 1px solid #e9edf2;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .control-group label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #1f3b49;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .control-group label span {
+      color: #0077b6;
+      font-weight: 700;
+      background: #e6f0f8;
+      padding: 0 0.5rem;
+      border-radius: 1rem;
+      font-size: 0.65rem;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0077b6;
+      height: 4px;
+      background: #d0dce6;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+      width: 1.2rem;
+      height: 1.2rem;
+      accent-color: #0077b6;
+      cursor: pointer;
+      margin-right: 0.3rem;
+    }
+
+    select {
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.6rem;
+      border: 1px solid #cbd5e1;
+      background: white;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      align-items: center;
+      margin-top: 0.2rem;
+    }
+
+    button {
+      border: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 0.7rem 1.6rem;
+      border-radius: 2.5rem;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #005f8c;
+      color: white;
+      box-shadow: 0 4px 10px rgba(0, 95, 140, 0.2);
+      border: 1px solid #004b70;
+    }
+
+    button:hover {
+      background: #004b6e;
+      transform: scale(1.02);
+    }
+
+    button.secondary {
+      background: white;
+      color: #005f8c;
+      border: 1px solid #bcccd6;
+      box-shadow: none;
+    }
+
+    button.secondary:hover {
+      background: #f2f6fa;
+    }
+
+    .status {
+      font-size: 0.9rem;
+      color: #2c5a6e;
+      font-weight: 500;
+      margin-left: 0.5rem;
+    }
+
+    /* ----- live preview: vertical stack of captured images ----- */
+    .preview-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2.5rem;
+      background: #fafcfe;
+      border-radius: 1.8rem;
+      border: 1px solid #e2e8f0;
+      padding: 2rem 1.5rem;
+      min-height: 200px;
+    }
+
+    .preview-container .no-data {
+      color: #8a9ba8;
+      font-size: 1rem;
+      width: 100%;
+      text-align: center;
+      padding: 3rem 0;
+    }
+
+    .preview-image {
+      width: 100%;
+      max-width: 800px;
+      aspect-ratio: 210 / 297;
+      border-radius: 1rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      border: 1px solid #e2e8f0;
+      object-fit: contain;
+      background: white;
+    }
+
+    /* ----- hidden container uses FIXED PIXELS for reliable capture ----- */
+    .hidden-preview {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      visibility: visible;
+      pointer-events: none;
+    }
+
+    .hidden-preview .label-page {
+      width: 794px;
+      height: 1123px;
+      background: white;
+      padding: 38px 42px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      font-size: 16px;
+      page-break-after: always;
+      break-inside: avoid;
+      border: 1px solid #e0e6ea;
+      position: relative;
+      font-family: var(--font-family, Tahoma, sans-serif);
+    }
+
+    /* ----- SINGLE‑LAYER HOLLOW TEXT (transparent fill + thick stroke) ----- */
+    .hollow-text {
+      font-weight: var(--weight);
+      font-size: var(--size);
+      letter-spacing: var(--spacing);
+      text-align: center;
+      word-break: break-word;
+      display: inline-block;
+      line-height: 1.0;
+    }
+
+    .hollow-text.hollow-on {
+      color: transparent;
+      -webkit-text-stroke: var(--stroke) #000000;
+      text-stroke: var(--stroke) #000000;
+      paint-order: stroke fill;
+    }
+
+    .hollow-text.hollow-off {
+      color: #000000;
+      -webkit-text-stroke: 0px;
+      text-stroke: 0px;
+    }
+
+    .hollow-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      line-height: 1.0;
+      flex-shrink: 0;
+    }
+
+    .order-row {
+      margin-bottom: var(--line-spacing, 0.1rem);
+    }
+    .driver-row {
+      margin-bottom: var(--line-spacing, 0.1rem);
+    }
+    .plate-row {
+      margin-bottom: calc(var(--line-spacing, 0.1rem) + 0.5rem);
+    }
+
+    .qr-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 0;
+      margin-top: 0.2rem;
+    }
+
+    .qr-wrap canvas {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto !important;
+      height: auto !important;
+      display: block;
+      object-fit: contain;
+    }
+
+    .footer-note {
+      font-size: 0.8rem;
+      color: #6a7f8a;
+      text-align: center;
+      margin-top: 0.2rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app">
+    <h1>Biglabel</h1>
+
+    <!-- input -->
+    <div class="input-section">
+      <label style="font-weight:600; color:#1f3b49;">📋 Data (order, driver, reg)</label>
+      <textarea id="dataInput">1551749, Gav, DF71 YXB
+1548665, Joe, CF23 YYZ
+1551721, Ben, PF68 DXB
+1541001, Xerxes 1, SP42 TAA
+1551723, Carlos Ruiz, XY99 ZZZ</textarea>
+      <span class="example-hint">One line per label · comma separated</span>
+    </div>
+
+    <!-- controls -->
+    <div class="controls">
+      <div class="control-group">
+        <label>Font family</label>
+        <select id="fontSelect">
+          <option value="Tahoma, sans-serif">Tahoma</option>
+          <option value="Arial, sans-serif">Arial</option>
+          <option value="Helvetica, sans-serif">Helvetica</option>
+          <option value="Verdana, sans-serif" selected>Verdana</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="'Times New Roman', serif">Times New Roman</option>
+          <option value="'Courier New', monospace">Courier New</option>
+          <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+          <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Style</label>
+        <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.1rem;">
+          <input type="checkbox" id="hollowToggle" />
+          <label for="hollowToggle" style="font-size: 0.8rem; text-transform: none; font-weight: 500; color: #1f3b49;">Hollow</label>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Stroke (px) <span id="strokeVal">9</span></label>
+        <input type="range" id="strokeSlider" min="1" max="25" value="9" step="0.5" />
+      </div>
+
+      <div class="control-group">
+        <label>Size (rem) <span id="sizeVal">8</span></label>
+        <input type="range" id="sizeSlider" min="2" max="15" value="8" step="0.5" />
+      </div>
+
+      <div class="control-group">
+        <label>Weight</label>
+        <select id="weightSelect">
+          <option value="400">400</option>
+          <option value="500">500</option>
+          <option value="600">600</option>
+          <option value="700">700</option>
+          <option value="800">800</option>
+          <option value="900" selected>900</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Spacing (px) <span id="spacingVal">1</span></label>
+        <input type="range" id="spacingSlider" min="0" max="25" value="1" step="0.5" />
+      </div>
+
+      <div class="control-group">
+        <label>Line spacing (rem) <span id="lineSpacingVal">1.75</span></label>
+        <input type="range" id="lineSpacingSlider" min="0" max="2" value="1.75" step="0.01" />
+      </div>
+
+      <div class="control-group">
+        <label>Sort by</label>
+        <select id="sortKeySelect">
+          <option value="none" selected>Unordered (original)</option>
+          <option value="order">Order Number</option>
+          <option value="driver">Driver Name</option>
+          <option value="plate">Vehicle Registration</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Direction</label>
+        <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.1rem;">
+          <input type="checkbox" id="sortAscToggle" checked />
+          <label for="sortAscToggle" style="font-size: 0.8rem; text-transform: none; font-weight: 500; color: #1f3b49;">Ascending</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- buttons -->
+    <div class="btn-group">
+      <button id="updateBtn">🔄 Update Preview</button>
+      <button id="pdfBtn">📄 Generate PDF</button>
+      <button id="clearBtn" class="secondary">🗑️ Clear</button>
+      <span id="statusText" class="status"></span>
+    </div>
+
+    <!-- live preview -->
+    <div id="livePreview" class="preview-container">
+      <div class="no-data">↻ Click "Update Preview" to render labels</div>
+    </div>
+
+    <div class="footer-note">
+      Preview images match PDF output. Driver & plate scale to 75% of order. QR encodes CSV with header. Toggle hollow/solid. Sort by any field. Adjust vertical line spacing with the slider. Changing sort updates the input text.
+    </div>
+  </div>
+
+  <!-- hidden container for PDF capture -->
+  <div id="hiddenContainer" class="hidden-preview"></div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      // ----- DOM refs -----
+      const dataInput = document.getElementById('dataInput');
+      const livePreview = document.getElementById('livePreview');
+      const hiddenContainer = document.getElementById('hiddenContainer');
+
+      const fontSelect = document.getElementById('fontSelect');
+      const hollowToggle = document.getElementById('hollowToggle');
+      const strokeSlider = document.getElementById('strokeSlider');
+      const sizeSlider = document.getElementById('sizeSlider');
+      const weightSelect = document.getElementById('weightSelect');
+      const spacingSlider = document.getElementById('spacingSlider');
+      const lineSpacingSlider = document.getElementById('lineSpacingSlider');
+      const sortKeySelect = document.getElementById('sortKeySelect');
+      const sortAscToggle = document.getElementById('sortAscToggle');
+
+      const strokeVal = document.getElementById('strokeVal');
+      const sizeVal = document.getElementById('sizeVal');
+      const spacingVal = document.getElementById('spacingVal');
+      const lineSpacingVal = document.getElementById('lineSpacingVal');
+
+      const updateBtn = document.getElementById('updateBtn');
+      const pdfBtn = document.getElementById('pdfBtn');
+      const clearBtn = document.getElementById('clearBtn');
+      const statusText = document.getElementById('statusText');
+
+      const SCALE_FACTOR = 0.75;
+
+      // ----- store original data separately -----
+      let originalData = dataInput.value;
+
+      // ----- update displayed values -----
+      function updateLabels() {
+        strokeVal.textContent = strokeSlider.value;
+        sizeVal.textContent = sizeSlider.value;
+        spacingVal.textContent = spacingSlider.value;
+        lineSpacingVal.textContent = parseFloat(lineSpacingSlider.value).toFixed(2);
+      }
+
+      strokeSlider.addEventListener('input', updateLabels);
+      sizeSlider.addEventListener('input', updateLabels);
+      spacingSlider.addEventListener('input', updateLabels);
+      lineSpacingSlider.addEventListener('input', updateLabels);
+      updateLabels();
+
+      // ----- parse CSV -----
+      function parseEntries(text) {
+        const lines = text.split(/\r?\n/);
+        const result = [];
+        for (let line of lines) {
+          line = line.trim();
+          if (!line) continue;
+          const parts = line.split(',').map(s => s.trim());
+          if (parts.length < 3) continue;
+          const order = parts[0].trim();
+          const driver = parts[1].trim();
+          const plate = parts.slice(2).join(', ').trim();
+          if (order && driver && plate) result.push({ order, driver, plate });
+        }
+        return result;
+      }
+
+      // ----- sorting function -----
+      function sortEntries(entries, sortKey, ascending) {
+        if (sortKey === 'none') {
+          return [...entries];
+        }
+        const sorted = [...entries];
+        sorted.sort((a, b) => {
+          let valA, valB;
+          if (sortKey === 'order') {
+            valA = parseInt(a.order, 10);
+            valB = parseInt(b.order, 10);
+            if (ascending) return valA - valB;
+            else return valB - valA;
+          } else if (sortKey === 'driver') {
+            valA = a.driver.toLowerCase();
+            valB = b.driver.toLowerCase();
+          } else if (sortKey === 'plate') {
+            valA = a.plate.toLowerCase();
+            valB = b.plate.toLowerCase();
+          }
+          if (ascending) {
+            return valA.localeCompare(valB);
+          } else {
+            return valB.localeCompare(valA);
+          }
+        });
+        return sorted;
+      }
+
+      // ----- format entries back to textarea lines -----
+      function formatEntries(entries) {
+        return entries.map(e => `${e.order}, ${e.driver}, ${e.plate}`).join('\n');
+      }
+
+      // ----- apply current sort to the textarea -----
+      function applySort() {
+        const sortKey = sortKeySelect.value;
+        const ascending = sortAscToggle.checked;
+
+        // Always use originalData as the source
+        const entries = parseEntries(originalData);
+        if (entries.length === 0) {
+          // If no valid entries, just show original data
+          dataInput.value = originalData;
+          return;
+        }
+
+        if (sortKey === 'none') {
+          // Show original data unchanged
+          dataInput.value = originalData;
+        } else {
+          const sorted = sortEntries(entries, sortKey, ascending);
+          dataInput.value = formatEntries(sorted);
+        }
+      }
+
+      // ----- update original data from textarea (user typed) -----
+      function updateOriginalData() {
+        originalData = dataInput.value;
+        // Don't re-apply sort here – we'll let the user click "Update Preview"
+        // or change sort controls to trigger a re-sort.
+        // This preserves the user's typed content exactly.
+      }
+
+      // ----- render preview with captured images -----
+      async function renderPreview() {
+        const text = dataInput.value;
+        let entries = parseEntries(text);
+
+        if (entries.length === 0) {
+          livePreview.innerHTML = '<div class="no-data">No valid entries found. Check format.</div>';
+          return;
+        }
+
+        // Apply sorting based on current sort controls (using the textarea content)
+        const sortKey = sortKeySelect.value;
+        const ascending = sortAscToggle.checked;
+        if (sortKey !== 'none') {
+          entries = sortEntries(entries, sortKey, ascending);
+        }
+
+        livePreview.innerHTML = '';
+
+        const orderSettings = {
+          stroke: parseFloat(strokeSlider.value),
+          size: parseFloat(sizeSlider.value),
+          weight: parseInt(weightSelect.value, 10),
+          spacing: parseFloat(spacingSlider.value),
+          lineSpacing: parseFloat(lineSpacingSlider.value),
+          hollow: hollowToggle.checked,
+          fontFamily: fontSelect.value
+        };
+
+        try {
+          statusText.textContent = '⏳ Rendering preview...';
+
+          hiddenContainer.innerHTML = '';
+          const pageElements = [];
+          for (const entry of entries) {
+            const el = buildHiddenPage(entry, orderSettings);
+            hiddenContainer.appendChild(el);
+            pageElements.push(el);
+          }
+
+          await new Promise(r => setTimeout(r, 400));
+
+          const canvases = [];
+          for (const el of pageElements) {
+            const canvas = await capturePage(el);
+            canvases.push(canvas);
+          }
+
+          hiddenContainer.innerHTML = '';
+
+          for (const canvas of canvases) {
+            const img = document.createElement('img');
+            img.src = canvas.toDataURL('image/jpeg', 0.95);
+            img.className = 'preview-image';
+            livePreview.appendChild(img);
+          }
+
+          statusText.textContent = `✅ ${entries.length} label(s) rendered (sorted by ${sortKey}, ${ascending ? 'asc' : 'desc'}, spacing: ${orderSettings.lineSpacing.toFixed(2)}rem)`;
+        } catch (error) {
+          console.error(error);
+          statusText.textContent = '⚠️ Error capturing preview.';
+          livePreview.innerHTML = '<div class="no-data">Error capturing preview. Check console.</div>';
+        }
+      }
+
+      // ----- build QR data string (CSV with header) -----
+      function buildQRData(order, driver, plate) {
+        const header = 'Order Number,Driver Name,Vehicle Registration';
+        const row = `${order},${driver},${plate}`;
+        return `${header}\n${row}`;
+      }
+
+      // ----- build a single hidden page (returns DOM element) -----
+      function buildHiddenPage(entry, orderSettings) {
+        const { order, driver, plate } = entry;
+        const { stroke, size, weight, spacing, lineSpacing, hollow, fontFamily } = orderSettings;
+
+        const scaledStroke = Math.max(1, stroke * SCALE_FACTOR);
+        const scaledSize = size * SCALE_FACTOR;
+        const scaledWeight = Math.round(weight * SCALE_FACTOR);
+        const scaledSpacing = Math.max(0, spacing * SCALE_FACTOR);
+
+        const page = document.createElement('div');
+        page.className = 'label-page';
+        page.style.setProperty('--font-family', fontFamily);
+        page.style.setProperty('--line-spacing', lineSpacing + 'rem');
+
+        function createHollowRow(text, rowClass, strokeVal, sizeVal, weightVal, spacingVal) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'hollow-wrapper ' + rowClass;
+          const el = document.createElement('div');
+          el.className = 'hollow-text';
+          if (hollow) {
+            el.classList.add('hollow-on');
+            el.style.setProperty('--stroke', strokeVal + 'px');
+          } else {
+            el.classList.add('hollow-off');
+          }
+          el.style.setProperty('--size', sizeVal + 'rem');
+          el.style.setProperty('--weight', weightVal);
+          el.style.setProperty('--spacing', spacingVal + 'px');
+          el.textContent = text;
+          wrapper.appendChild(el);
+          return wrapper;
+        }
+
+        const orderRow = createHollowRow(order, 'order-row', stroke, size, weight, spacing);
+        const driverRow = createHollowRow(driver, 'driver-row', scaledStroke, scaledSize, scaledWeight, scaledSpacing);
+        const plateRow = createHollowRow(plate, 'plate-row', scaledStroke, scaledSize, scaledWeight, scaledSpacing);
+
+        const qrWrap = document.createElement('div');
+        qrWrap.className = 'qr-wrap';
+
+        page.appendChild(orderRow);
+        page.appendChild(driverRow);
+        page.appendChild(plateRow);
+        page.appendChild(qrWrap);
+
+        // QR code generation
+        const qrData = buildQRData(order, driver, plate);
+        QRCode.toCanvas(document.createElement('canvas'), qrData, {
+          width: 600,
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' },
+          errorCorrectionLevel: 'M'
+        }).then(canvas => {
+          qrWrap.innerHTML = '';
+          qrWrap.appendChild(canvas);
+        }).catch(() => {
+          qrWrap.textContent = 'QR Error';
+        });
+
+        return page;
+      }
+
+      // ----- capture a single page element with html2canvas -----
+      async function capturePage(el) {
+        return await html2canvas(el, {
+          scale: 2.2,
+          backgroundColor: '#ffffff',
+          allowTaint: false,
+          useCORS: true,
+          logging: false,
+          width: el.scrollWidth,
+          height: el.scrollHeight
+        });
+      }
+
+      // ----- generate PDF -----
+      async function generatePDF() {
+        const text = dataInput.value;
+        let entries = parseEntries(text);
+        if (entries.length === 0) {
+          statusText.textContent = '⚠️ No valid data for PDF.';
+          return;
+        }
+
+        const sortKey = sortKeySelect.value;
+        const ascending = sortAscToggle.checked;
+        if (sortKey !== 'none') {
+          entries = sortEntries(entries, sortKey, ascending);
+        }
+
+        const orderSettings = {
+          stroke: parseFloat(strokeSlider.value),
+          size: parseFloat(sizeSlider.value),
+          weight: parseInt(weightSelect.value, 10),
+          spacing: parseFloat(spacingSlider.value),
+          lineSpacing: parseFloat(lineSpacingSlider.value),
+          hollow: hollowToggle.checked,
+          fontFamily: fontSelect.value
+        };
+
+        try {
+          statusText.textContent = '⏳ Building PDF...';
+
+          hiddenContainer.innerHTML = '';
+          const pageElements = [];
+          for (const entry of entries) {
+            const el = buildHiddenPage(entry, orderSettings);
+            hiddenContainer.appendChild(el);
+            pageElements.push(el);
+          }
+
+          await new Promise(r => setTimeout(r, 400));
+
+          const canvases = [];
+          for (const el of pageElements) {
+            const canvas = await capturePage(el);
+            canvases.push(canvas);
+          }
+
+          hiddenContainer.innerHTML = '';
+
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+
+          for (let i = 0; i < canvases.length; i++) {
+            const imgData = canvases[i].toDataURL('image/jpeg', 0.95);
+            if (i > 0) pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+            statusText.textContent = `📄 Page ${i+1}/${canvases.length}`;
+          }
+
+          pdf.save('biglabel.pdf');
+          statusText.textContent = `✅ PDF saved (${canvases.length} pages) sorted by ${sortKey}, ${ascending ? 'asc' : 'desc'}, spacing: ${orderSettings.lineSpacing.toFixed(2)}rem`;
+        } catch (error) {
+          console.error(error);
+          statusText.textContent = '⚠️ Error generating PDF.';
+        }
+      }
+
+      // ----- clear -----
+      function clearAll() {
+        dataInput.value = '';
+        originalData = '';
+        livePreview.innerHTML = '<div class="no-data">↻ Click "Update Preview" to render labels</div>';
+        hiddenContainer.innerHTML = '';
+        statusText.textContent = '';
+      }
+
+      // ----- event wiring -----
+      updateBtn.addEventListener('click', renderPreview);
+      pdfBtn.addEventListener('click', generatePDF);
+      clearBtn.addEventListener('click', clearAll);
+
+      // When sort controls change, apply sort to the textarea
+      sortKeySelect.addEventListener('change', applySort);
+      sortAscToggle.addEventListener('change', applySort);
+
+      // When user types in the textarea, update originalData
+      dataInput.addEventListener('input', updateOriginalData);
+
+      // Initial setup: default sort is "none", so textarea shows original data
+      window.addEventListener('load', () => {
+        // Ensure originalData is set to the initial textarea value
+        originalData = dataInput.value;
+        // Apply sort (which will be "none" by default, showing original data)
+        applySort();
+        // Then render preview
+        renderPreview();
+      });
+
+    })();
+  </script>
+</body>
+</html>

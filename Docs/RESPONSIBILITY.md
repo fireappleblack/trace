@@ -5,10 +5,11 @@ flatten:end -->
 
 # Responsibility & Ownership
 
-**Last updated:** 2026-06-08
+**Last updated:** 2026-06-13
 
 This repo is no longer "the zip game" — it's becoming "the cluster," with the
-zip game, WordPress, a shared MariaDB, and a mail server as co-tenants of one
+zip game, **biglabel**, WordPress, a shared MariaDB, and a mail server as
+co-tenants of one
 k3s platform. Work happens across **parallel chats/workstreams**, so this file
 exists to answer one question cleanly: **who owns this file, and which
 workstream should be editing it?** The goal is to stop two concurrent chats
@@ -26,6 +27,10 @@ clobbering each other's work.
 - **Zip-game development** — the application: client, server code, schema, and
   the manifests specific to running *that* app (its own Deployment, Ingress,
   and dedicated Postgres).
+- **Biglabel development** — a *second* application: a single-file, client-side
+  PDF/label generator (`biglabel/`). Static-only (no backend, no DB), so it's
+  low-maintenance and app-owned; hosted on a hardened nginx at
+  `biglabel.saidtheape.com`.
 - **Infrastructure / platform** — the shared platform every tenant depends on:
   TLS issuers, ingress conventions, Longhorn/storage, security posture, the
   shared MariaDB, the mail server, WordPress site templates, and cross-cutting
@@ -45,6 +50,10 @@ clobbering each other's work.
 | `trace-server/deploy/postgres.yaml` | Zip-game dev | The zip game's **dedicated** Postgres (app-specific, not shared) |
 | `trace-server/deploy/apply-db.sh`, `.secrets.env.example`, `.gitignore-snippet` | Zip-game dev | App DB secret tooling (the out-of-band pattern itself is documented in `DEPLOYMENT.md`) |
 | `trace-server/deploy/deploy.sh` | Zip-game dev | App build/push/rollout — publishes versioned tags to GHCR (`ghcr.io/fireappleblack/trace`) |
+| `biglabel/Biglabel.html` | Biglabel dev | The single-file client-side app (PDF/label generator) |
+| `biglabel/Containerfile`, `biglabel/nginx.conf` | Biglabel dev | Static nginx image + server config (**no Flask** — client-side only) |
+| `biglabel/deploy/biglabel-k8s.yaml` | Biglabel dev | Deployment/Service/Ingress for `biglabel.saidtheape.com` |
+| `biglabel/deploy/deploy.sh`, `biglabel/README.md` | Biglabel dev | App build/push/rollout (`ghcr.io/fireappleblack/biglabel`) + docs |
 | `platform/cluster-issuers.yaml` | **Infrastructure** | Shared TLS issuers — used by *every* tenant. Moved into `platform/` during the v0.3.0 directory split |
 | `registry.yaml` | **Infrastructure** | Abandoned in-cluster registry — fully superseded by GHCR; safe to drop (keep only for reference) |
 | `STATUS.md`, `DEPLOYMENT.md`, `RESPONSIBILITY.md`, `DECISIONS.md` | Shared | Coordinate edits (§4); `DECISIONS.md` is append-only (§4) |
@@ -78,6 +87,9 @@ additions.
 │   └── deploy/
 │       ├── trace-k8s.yaml postgres.yaml
 │       └── apply-db.sh .secrets.env.example .gitignore-snippet deploy.sh
+├── biglabel/                       # APP (biglabel dev) — static, no backend
+│   ├── Biglabel.html Containerfile nginx.conf README.md
+│   └── deploy/biglabel-k8s.yaml deploy.sh
 ├── platform/                       # SHARED INFRA (infrastructure)
 │   ├── cluster-issuers.yaml        # moved here in the v0.3.0 split
 │   ├── mariadb/                    # shared MariaDB (authored 2026-06-08)

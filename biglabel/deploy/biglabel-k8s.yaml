@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────────────
+# biglabel — Deployment + Service + Ingress (static site, biglabel.saidtheape.com)
+# ─────────────────────────────────────────────────────────────────────────
+# Application-owned (a new app, like Trace). Static nginx — no DB, no secrets,
+# no Longhorn PVC (nothing to persist). Two stateless replicas spread across the
+# nodes for cheap availability on a public résumé-piece site.
+#
+#   kubectl apply -f biglabel/deploy/biglabel-k8s.yaml
+#   kubectl -n biglabel rollout status deploy/biglabel
+#
+# TLS: starts on letsencrypt-staging (HTTP-01), the cluster's CURRENT mechanism.
+# Once the Cloudflare/DNS-01 cutover lands (DECISIONS 2026-06-06, platform/
+# cloudflare/), switch the annotation below to letsencrypt-dns01-prod and flip
+# via `cmctl renew` — see README + DEPLOYMENT §5. NEVER delete the cert secret.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: biglabel
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: biglabel
+  namespace: biglabel
+  labels: { app: biglabel }
+spec:
+  replicas: 2                       # stateless static content — cheap HA
+  selector:
+    matchLabels: { app: biglabel }
+  template:
+    metadata:
+      labels: { app: biglabel }
+    spec:
+      # Private GHCR image — needs ghcr-pull in this namespace (see README).
+      # (Delete this block if you make the biglabel package public.)
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread the two replicas across the two nodes when possible.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: { app: biglabel }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nginx
+          image: ghcr.io/fireappleblack/biglabel:v0.1.0
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true       # nginx writes only to the tmpfs mounts below
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            # Writable scratch the unprivileged nginx needs under a read-only rootfs.
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: run,   mountPath: /tmp }
+      volumes:
+        - { name: cache, emptyDir: {} }
+        - { name: run,   emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: biglabel
+  namespace: biglabel
+  labels: { app: biglabel }
+spec:
+  type: ClusterIP
+  selector: { app: biglabel }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http              # → container :8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: biglabel
+  namespace: biglabel
+  labels: { app: biglabel }
+  annotations:
+    # CURRENT cluster mechanism (HTTP-01). Switch to letsencrypt-dns01-prod at
+    # the Cloudflare/DNS-01 cutover (then `cmctl renew biglabel-tls -n biglabel`).
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [biglabel.saidtheape.com]
+      secretName: biglabel-tls
+  rules:
+    - host: biglabel.saidtheape.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: biglabel
+                port:
+                  number: 80

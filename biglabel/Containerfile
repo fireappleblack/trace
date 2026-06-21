@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────
+# biglabel — static single-page app (client-side PDF generator)
+# ─────────────────────────────────────────────────────────────────────────
+# NO Flask, NO database: Biglabel.html generates its PDF entirely in the
+# browser (jsPDF + html2canvas + qrcode, loaded from CDNs). So this is just a
+# static file served by a tiny, hardened nginx — same k3s/GHCR/Traefik/
+# cert-manager/Cloudflare principles as Trace, minus the Python runtime.
+#
+# Uses the UNPRIVILEGED nginx image: runs as a non-root user (uid 101) and
+# listens on 8080, so the pod needs no root and no NET_BIND_SERVICE capability.
+#
+# Build (ARM64 nodes), tag, push to GHCR — same flow as trace:
+#   podman build -f biglabel/Containerfile -t ghcr.io/fireappleblack/biglabel:v0.1.0 biglabel
+#   echo $CR_PAT | podman login ghcr.io -u fireappleblack --password-stdin
+#   podman push ghcr.io/fireappleblack/biglabel:v0.1.0
+#
+# NOTE: the uploaded project file is currently named `Bigabel.html` (missing an
+# 'l'). The build below expects `Biglabel.html` — rename it on commit, or change
+# the COPY line. The canonical app file is `biglabel/Biglabel.html`.
+# ─────────────────────────────────────────────────────────────────────────
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+
+# Replace the default server block (ours listens on 8080, adds headers + /healthz).
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# The app itself, served at /.
+COPY Biglabel.html /usr/share/nginx/html/index.html

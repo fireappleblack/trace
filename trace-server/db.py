@@ -1,6 +1,6 @@
 # flatten:begin
 # repo-path: trace-server/db.py
-# generated: 2026-06-14T20:08:09Z by flatten.py — do not edit this block
+# generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
 # flatten:end
 
 """
@@ -596,7 +596,236 @@ def get_ui_text(conn, backend):
     cur.close()
     return out
 
-def get_user(conn, backend, placeholder, user_id):
+
+# ─────────────────────────────────────────────────────────────────────────
+# UI-text admin CRUD — used ONLY by the separate trace-admin service. The
+# public app never calls these; it only ever READS active rows (get_ui_text).
+# ─────────────────────────────────────────────────────────────────────────
+_UI_TEXT_EDITABLE = ('category', 'text_key', 'body', 'sort_order', 'active')
+
+def _clean_ui_text_field(col, v):
+    if col == 'category':
+        v = (v or '').strip()[:64]
+        if not v:
+            raise ValueError('category cannot be empty')
+        return v
+    if col == 'text_key':
+        return (str(v)[:128] if v else None)
+    if col == 'body':
+        if v is None:
+            raise ValueError('body cannot be null')
+        return str(v)
+    if col == 'sort_order':
+        return int(v or 0)
+    if col == 'active':
+        return 1 if v else 0
+    raise KeyError(col)
+
+def admin_list_ui_text(conn, backend):
+    """Every UI-text row — active AND inactive — for the admin editor."""
+    cur = cursor(conn, backend)
+    cur.execute(
+        "SELECT id, category, text_key, body, sort_order, active, updated_at "
+        "FROM ui_text ORDER BY category, sort_order, id"
+    )
+    out = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return out
+
+def admin_create_ui_text(conn, backend, placeholder, data):
+    """Insert a new UI-text row; returns its new id. category + body required."""
+    row = {col: _clean_ui_text_field(col, data.get(col))
+           for col in _UI_TEXT_EDITABLE if col in data or col in ('category', 'body')}
+    row.setdefault('sort_order', 0)
+    row.setdefault('active', 1)
+    row['updated_at'] = int(time.time() * 1000)
+    keys = list(row.keys())
+    cols = ', '.join(keys)
+    phs = ', '.join([placeholder] * len(keys))
+    vals = [row[k] for k in keys]
+    cur = cursor(conn, backend)
+    if backend == 'postgres':
+        cur.execute(f"INSERT INTO ui_text ({cols}) VALUES ({phs}) RETURNING id", vals)
+        new_id = cur.fetchone()['id']
+    else:
+        cur.execute(f"INSERT INTO ui_text ({cols}) VALUES ({phs})", vals)
+        new_id = cur.lastrowid
+    conn.commit()
+    cur.close()
+    return new_id
+
+def admin_update_ui_text(conn, backend, placeholder, row_id, data):
+    """Patch the supplied editable fields of one row; returns rows affected."""
+    sets, vals = [], []
+    for col in _UI_TEXT_EDITABLE:
+        if col in data:
+            sets.append(f"{col} = {placeholder}")
+            vals.append(_clean_ui_text_field(col, data[col]))
+    if not sets:
+        return 0
+    sets.append(f"updated_at = {placeholder}")
+    vals.append(int(time.time() * 1000))
+    vals.append(int(row_id))
+    cur = cursor(conn, backend)
+    cur.execute(f"UPDATE ui_text SET {', '.join(sets)} WHERE id = {placeholder}", vals)
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+def admin_delete_ui_text(conn, backend, placeholder, row_id):
+    """Hard-delete one row; returns rows affected."""
+    cur = cursor(conn, backend)
+    cur.execute(f"DELETE FROM ui_text WHERE id = {placeholder}", (int(row_id),))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Admin accounts (multi-admin auth + roles) — used ONLY by trace-admin.
+# Password HASHING lives in the service (werkzeug); db.py only stores/reads the
+# hash string. role validation uses a strict hierarchy.
+# ─────────────────────────────────────────────────────────────────────────
+ADMIN_ROLES = ('cleric', 'admin', 'superadmin')
+
+def _check_role(role):
+    if role not in ADMIN_ROLES:
+        raise ValueError(f'invalid role {role!r} (expected one of {ADMIN_ROLES})')
+    return role
+
+def admin_ensure_bootstrap(conn, backend, placeholder, username, password_hash):
+    """Upsert the env-seeded break-glass superadmin: create if absent, else
+    re-assert its hash + superadmin role + active. Idempotent (run at startup)."""
+    now = int(time.time() * 1000)
+    cur = cursor(conn, backend)
+    cur.execute(f"SELECT id FROM admin_users WHERE username = {placeholder}", (username,))
+    row = cur.fetchone()
+    if row:
+        cur.execute(
+            f"UPDATE admin_users SET password_hash = {placeholder}, role = 'superadmin', "
+            f"active = 1, updated_at = {placeholder} WHERE id = {placeholder}",
+            (password_hash, now, row['id']),
+        )
+    else:
+        cur.execute(
+            f"INSERT INTO admin_users (username, password_hash, role, active, created_at, updated_at) "
+            f"VALUES ({placeholder}, {placeholder}, 'superadmin', 1, {placeholder}, {placeholder})",
+            (username, password_hash, now, now),
+        )
+    conn.commit()
+    cur.close()
+
+def admin_get_user_by_username(conn, backend, placeholder, username):
+    cur = cursor(conn, backend)
+    cur.execute(
+        f"SELECT id, username, password_hash, role, active FROM admin_users "
+        f"WHERE username = {placeholder}", (username,))
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else None
+
+def admin_touch_login(conn, backend, placeholder, user_id):
+    cur = cursor(conn, backend)
+    cur.execute(f"UPDATE admin_users SET last_login_at = {placeholder} WHERE id = {placeholder}",
+                (int(time.time() * 1000), int(user_id)))
+    conn.commit()
+    cur.close()
+
+def admin_list_users(conn, backend):
+    """All accounts WITHOUT password hashes (for the superadmin accounts pane)."""
+    cur = cursor(conn, backend)
+    cur.execute(
+        "SELECT id, username, role, active, created_at, updated_at, last_login_at "
+        "FROM admin_users ORDER BY username")
+    out = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return out
+
+def admin_count_active_superadmins(conn, backend):
+    cur = cursor(conn, backend)
+    cur.execute("SELECT COUNT(*) AS n FROM admin_users WHERE role = 'superadmin' AND active = 1")
+    n = cur.fetchone()['n']
+    cur.close()
+    return int(n)
+
+def admin_create_user(conn, backend, placeholder, username, password_hash, role):
+    _check_role(role)
+    username = (username or '').strip()
+    if not username:
+        raise ValueError('username is required')
+    now = int(time.time() * 1000)
+    cur = cursor(conn, backend)
+    try:
+        if backend == 'postgres':
+            cur.execute(
+                f"INSERT INTO admin_users (username, password_hash, role, active, created_at, updated_at) "
+                f"VALUES ({placeholder}, {placeholder}, {placeholder}, 1, {placeholder}, {placeholder}) RETURNING id",
+                (username[:64], password_hash, role, now, now))
+            new_id = cur.fetchone()['id']
+        else:
+            cur.execute(
+                f"INSERT INTO admin_users (username, password_hash, role, active, created_at, updated_at) "
+                f"VALUES ({placeholder}, {placeholder}, {placeholder}, 1, {placeholder}, {placeholder})",
+                (username[:64], password_hash, role, now, now))
+            new_id = cur.lastrowid
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError('username already exists')
+        raise
+    conn.commit()
+    cur.close()
+    return new_id
+
+def admin_get_user(conn, backend, placeholder, user_id):
+    cur = cursor(conn, backend)
+    cur.execute(f"SELECT id, username, role, active FROM admin_users WHERE id = {placeholder}",
+                (int(user_id),))
+    row = cur.fetchone()
+    cur.close()
+    return dict(row) if row else None
+
+def admin_set_user_role(conn, backend, placeholder, user_id, role):
+    _check_role(role)
+    cur = cursor(conn, backend)
+    cur.execute(f"UPDATE admin_users SET role = {placeholder}, updated_at = {placeholder} WHERE id = {placeholder}",
+                (role, int(time.time() * 1000), int(user_id)))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+def admin_set_user_active(conn, backend, placeholder, user_id, active):
+    cur = cursor(conn, backend)
+    cur.execute(f"UPDATE admin_users SET active = {placeholder}, updated_at = {placeholder} WHERE id = {placeholder}",
+                (1 if active else 0, int(time.time() * 1000), int(user_id)))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+def admin_set_user_password(conn, backend, placeholder, user_id, password_hash):
+    cur = cursor(conn, backend)
+    cur.execute(f"UPDATE admin_users SET password_hash = {placeholder}, updated_at = {placeholder} WHERE id = {placeholder}",
+                (password_hash, int(time.time() * 1000), int(user_id)))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+def admin_delete_user(conn, backend, placeholder, user_id):
+    cur = cursor(conn, backend)
+    cur.execute(f"DELETE FROM admin_users WHERE id = {placeholder}", (int(user_id),))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    return n
+
+
+
     """Returns the user row as a dict, or None if not found."""
     cur = cursor(conn, backend)
     cur.execute(f"SELECT * FROM users WHERE user_id = {placeholder}", (user_id,))

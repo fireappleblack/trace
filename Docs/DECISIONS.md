@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-15T20:33:57Z by flatten.py — do not edit this block
+     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -29,6 +29,56 @@ State lives in `STATUS.md`, process in `DEPLOYMENT.md`, ownership in
   decision under `decisions/`. Not needed yet.)*
 
 ---
+
+### 2026-06-13 [biglabel] — New static app biglabel.saidtheape.com — nginx, not Flask
+
+**Decision:** Host `biglabel` — a single-page, **client-side** PDF/label
+generator (jsPDF + html2canvas + qrcode, no backend) — as static content on a
+hardened **unprivileged nginx**, reusing the cluster's standard principles
+(containerize → GHCR → Traefik + cert-manager TLS → Cloudflare front, out-of-band
+secrets, non-root / read-only-rootfs hardening) but **not** Flask/Postgres. Lives
+under `biglabel/`; image `ghcr.io/fireappleblack/biglabel`; served at
+`biglabel.saidtheape.com` (a Cloudflare zone). Introduces the **`[biglabel]`**
+decision tag — biglabel is a *second* application workstream alongside the zip
+game (see RESPONSIBILITY.md §1/§2).
+
+**Why:** The app has no server logic or state, so putting Flask/gunicorn/Python
+in front of one static HTML file would be pure over-engineering and needless
+attack surface. Static nginx is the leanest correct fit while keeping every
+valuable shared principle.
+
+**Notes:**
+- TLS starts on `letsencrypt-staging` (HTTP-01, the cluster's current
+  mechanism); switch the Ingress to `letsencrypt-dns01-prod` + onboard the host
+  to Cloudflare at the DNS-01 cutover (platform/cloudflare/; DECISIONS
+  2026-06-06). Flip via `cmctl renew`, never secret-deletion.
+- The app loads its three JS libs from CDNs (cdnjs + jsdelivr). **Vendoring**
+  them into the image — to survive a CDN outage and allow a strict CSP — is a
+  noted app-lane follow-up (see biglabel/README.md).
+- Manifests authored; **not yet deployed**.
+- Uploaded source file is currently `Bigabel.html` (typo); canonical name is
+  `biglabel/Biglabel.html`.
+
+**Refs:** `biglabel/` (Containerfile, nginx.conf, deploy/biglabel-k8s.yaml,
+deploy.sh, README.md); DEPLOYMENT §5 (TLS); platform/cloudflare/ (edge).
+Supersedes nothing.
+
+### 2026-06-13 [zip-game] — Admin: multi-admin accounts + role hierarchy (admin v0.2.0)
+**Decision:** replace the single shared admin password with **per-admin accounts + a strict, nested role hierarchy** — `cleric` (1) < `admin` (2) < `superadmin` (3) — enforced by a one-line `require_rank(min)` gate. Roles are cheap; the real change is **identity**: a shared password can't carry a role, so accounts (`admin_users`) are the prerequisite.
+**Role → function mapping** (my call, per Ben's delegation): **cleric** = edit site wording (the `ui_text` editor); **admin** = + game design (find-the-shape authoring + future puzzle/daily config); **superadmin** = + account/role management, plus the **audit-trail + log-reading** capabilities, which are **deferred** (not built). To make the framework actually *work*, superadmin account/role management IS implemented (otherwise the tiers are inert labels on one account).
+**Bootstrap / break-glass:** `ADMIN_USERNAME` (default `root`) + `ADMIN_PASSWORD` upsert one superadmin at every startup (idempotent), so the env secret is always a way back in. That account's password is env-managed (UI changes are overwritten on restart); all other accounts are created in-app and own their passwords.
+**Safety:** the last *active* superadmin is protected — demotion, deactivation, and deletion all return 409. Login rate-limit + per-session CSRF + signed SameSite=Strict session unchanged.
+**Boundary noted:** this works because the three roles are strictly nested. A future non-nested permission (can do X but not a "lower" Y) would force a move from linear ranks to capability sets — not now.
+**Data note:** `admin_users` lives in the game's shared Postgres (consistent with the admin importing `db.py`); password hashes therefore sit in the same DB the public app can reach. Acceptable for one trust domain; a future hardening could give the admin a separate DB role. **Also realigned `schema.sql`** to re-include the v0.42.0 `turns`/`board_key` columns + `idx_attempts_wriggle` that the canonical template was missing (the `db.py` ATTEMPTS_V2 runtime migration had been covering it on the live DB; fresh installs now match what `db.py` expects).
+**Validated:** 39/39 service checks (anon 401; bootstrap superadmin login; role gating — cleric/admin can't reach account mgmt 403, can reach `ui_text`; account create/dup/short-pw/invalid-role/CSRF; last-superadmin guards 409; self password change + re-login; superadmin password reset; logout; rate-limit 429) + 12/12 `admin_users` data-layer checks on SQLite. **Refs:** `trace-admin/test_admin.py`.
+
+### 2026-06-13 [cross-cutting] — Admin back-end: separate service; phase 1 = UI-text editor
+**Decision:** build the admin back-end as an **entirely separate service** (`trace-admin/`), not as routes in the public app. `trace.html` and `trace-server/app.py` carry no admin code or admin API calls; the only ui-text endpoint in the public app stays the public *read* (`GET /api/ui-text`) the player client needs. The admin service shares the game's dedicated Postgres by **importing the same `db.py`** (one source of truth — `db.py` gained `admin_list/create/update/delete_ui_text`; it is NOT forked), and exposes only admin operations behind a login. **Boundary that can't be separate:** the data — the admin writes the same `ui_text` rows, so "separate" means separate client + process + image + auth, shared DB.
+**Auth (right-sized for one admin):** a single `ADMIN_PASSWORD` (hashed at startup; or `ADMIN_PASSWORD_HASH`) → signed HttpOnly **SameSite=Strict** session cookie (`ADMIN_SECRET_KEY`) + a per-session **CSRF** token echoed on every write + per-IP login **rate-limit**. No user management/roles/OAuth.
+**Exposure (Ben's call):** a **locked-down public subdomain** `admin.zip.hsabren.co.uk` (not port-forward). This pulls in the **infra lane**: DNS record, cert issuer coverage (staging → prod, `cmctl renew`, never delete the secret), and — required for an admin surface — an **edge gate** (Cloudflare Access / Traefik IP-allowlist or forward-auth). App-level login is defense in depth, not the only wall. The Ingress carries a middleware-annotation placeholder for infra to wire.
+**Lane/ownership:** `trace-admin/**` is **zip-game-owned** (it's game admin sharing the app's Postgres + `db.py`); `RESPONSIBILITY.md` updated. The cert/DNS/edge bits are infra-owned — hence this is tagged cross-cutting.
+**Scope:** phase 1 = the UI-text editor (the long-standing reminder: welcome-banner phrases + consent/data-protection card copy, editable without code/DB access). **Phase 2 = find-the-shape** authoring + the bounded solution enumerator. Note for phase 2: a board is produced by the JS seeded generator, so enumerating a board's solutions in Python would require porting that generator with byte-exact RNG parity — fragile and against the validate-via-JS ethos. The clean path is to **reuse the game's JS** (generate + enumerate client-side in `admin.html`, store the chosen path), which argues for first extracting the game-logic core into a shared JS module both `trace.html` and `admin.html` import. To be decided before building phase 2.
+**Validated:** 20/20 admin-service checks on SQLite (anon 401, wrong/right password, session+CSRF issue, seeded ui_text list, create needs CSRF/201, missing-body 400, patch 200/persist/404, delete, logout 401, rate-limit 429); `admin.html` JS `node --check`; `admin-k8s.yaml` parses (Deployment/Service/Ingress, correct secrets); `apply-admin.sh` `bash -n`. **Refs:** `trace-admin/README.md`.
 
 ### 2026-06-13 [zip-game] — Plain-language insights copy; v0.42.1
 **Decision:** the leaderboard insight panes used statistician shorthand (`n=12`, "suppressed", "contributors") that confused at least one young player. Reworded for a general/family audience without changing any data or thresholds: Personal & Global show `12 games` (+ a tooltip) instead of `n=12`; Personal gained a one-line explainer that each bar is the player's median and the count is its sample size; Insights gained a short intro line, a Min-samples tooltip, and friendlier privacy wording ("hidden for privacy" rather than "suppressed"). Copy/label only — no logic, metrics, or privacy thresholds touched. Validated: syntax + board_key/signature (7/7) + solve-integration (13/13) re-run clean.

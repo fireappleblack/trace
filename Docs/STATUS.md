@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/STATUS.md
-     generated: 2026-06-15T20:33:57Z by flatten.py — do not edit this block
+     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Status & Resilience Review
@@ -21,6 +21,27 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, admin v0.2.0):** **Multi-admin accounts + roles.** Replaced
+  the single shared password with an `admin_users` table and a strict role hierarchy
+  — **cleric** (site wording / `ui_text`) < **admin** (+ game design, find-the-shape)
+  < **superadmin** (+ account & role management; audit/logs deferred). Login is now
+  username + password; a `require_rank(min)` gate guards each route; a break-glass
+  superadmin (`ADMIN_USERNAME`/`ADMIN_PASSWORD`) is upserted at startup; last-active-
+  superadmin is protected from demotion/deactivation/deletion. `db.py` gained
+  `admin_*` account functions; `schema.sql` gained `admin_users` (and **realigns the
+  v0.42.0 `turns`/`board_key` columns + wriggle index** that the canonical template
+  was missing — the `db.py` ATTEMPTS_V2 migration had been covering this on the live
+  DB). Validated: **39/39** service checks (bootstrap, role gating, account CRUD,
+  guards, self/superadmin password change, CSRF, rate-limit) + 12/12 data-layer.
+- **Zip-game (2026-06-13, admin v1):** **Admin back-end — phase 1 (UI-text editor).**
+  New *separate* service `trace-admin/` (`app_admin.py` Flask + single-file
+  `admin.html` + `Containerfile` + `deploy/admin-k8s.yaml`), imports the shared
+  `db.py` (which gained `admin_*_ui_text` CRUD) and edits `ui_text` behind a login
+  (hashed password → SameSite=Strict signed session + per-session CSRF + login
+  rate-limit). The public app/client stay admin-free. Validated: 20/20 service
+  checks (auth, CSRF, CRUD, validation, rate-limit) on SQLite; client JS + manifest
+  + apply-script lint clean. Exposure (`admin.zip.…`) and find-the-shape are the
+  open items — see §6 and DECISIONS 2026-06-13.
 - **Zip-game (2026-06-13, v0.42.1):** **Plain-language leaderboard insights copy.**
   Replaced the statistician shorthand `n=12` with `12 games` on the Personal and
   Global panes (with a hover tooltip), added a one-line explainer on Personal ("each
@@ -192,8 +213,8 @@ returns.
   banner phrases, the consent-card copy, the ToS body, and the FAQ. One query
   (`/api/ui-text`) returns it all; the client carries the same text as an
   offline fallback. Seeded only when empty, so direct edits are never
-  overwritten. Editing is currently by direct SQL; an admin UI is still to be
-  built (see §6).
+  overwritten. Editing is now done through the separate `trace-admin/` editor
+  (phase 1, see §6); direct SQL remains a fallback.
 - Flask + gunicorn server (`app.py`, `db.py`, `schema.sql`): serves the
   client and a REST API for users, attempts, leaderboards, aggregates, the
   insights slicer, and UI text. Two gunicorn workers per pod. The server does
@@ -433,9 +454,17 @@ backups are actually running and a restore has been proven.
 - ~~Complete the **GHCR migration**~~ — **DONE (2026-06-03):** image on
   `ghcr.io/fireappleblack/trace`, pulled via `ghcr-pull`; `deploy.sh` repointed
   to GHCR; side-loading and the self-hosted registry retired.
-- Build an **admin backend** so welcome-banner phrases and consent-card copy in
-  `ui_text` can be edited by an admin without DB write access or code changes
-  (interim method is direct SQL). *(Reminder carried forward.)*
+- **Admin backend — phase 1 landed (UI-text editor) + multi-admin roles.** A
+  *separate* service, `trace-admin/` (own Flask app + single-file `admin.html`
+  client + image + k8s manifest), imports the shared `db.py`. It now has
+  **accounts + a strict role hierarchy** — cleric (edit `ui_text`: welcome-banner
+  phrases, consent/data-protection card, ToS, FAQ) < admin (+ game design) <
+  superadmin (+ account/role management). Login is username + password; a
+  break-glass superadmin is env-seeded at startup. The public app/client carry no
+  admin code. **Remaining:** (a) infra-lane work to expose `admin.zip.hsabren.co.uk`
+  (DNS + cert + an edge gate); (b) **phase 2 — find-the-shape authoring + the
+  bounded solution enumerator**, gated to the admin role (see DECISIONS 2026-06-13);
+  (c) deferred superadmin capabilities — **audit trails + log reading**.
 - **Restrict SSH (22)** to your source IP (also §4 #3).
 - **Deploy the new platform stacks** (manifests authored 2026-06-08, not yet on
   the cluster): the shared **MariaDB**, the **backups** CronJob (then run the one
