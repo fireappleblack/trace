@@ -1,0 +1,55 @@
+# flatten:begin
+# repo-path: trace-admin/Containerfile
+# generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trace ADMIN — container image (Podman / Docker compatible)
+# ─────────────────────────────────────────────────────────────────────────
+# Build with the PROJECT ROOT as context (not trace-admin/), because the image
+# needs the shared data layer that lives in trace-server/:
+#
+#     cd /path/to/project-root
+#     podman build -f trace-admin/Containerfile -t trace-admin:latest .
+#
+# Image layout mirrors the repo so `import db` resolves exactly as in dev:
+#
+#     /app/trace-server/{db.py,schema.sql}     ← shared data layer (one source of truth)
+#     /app/trace-admin/{app_admin.py,admin.html}
+#
+# This image carries NO game client and NO public app code — admin only.
+# ─────────────────────────────────────────────────────────────────────────
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Deps first for layer caching.
+COPY trace-admin/requirements.txt /app/trace-admin/requirements.txt
+RUN pip install --no-cache-dir -r /app/trace-admin/requirements.txt
+
+# Shared data layer (db.py + schema.sql) — copied, not forked.
+COPY trace-server/db.py      /app/trace-server/db.py
+COPY trace-server/schema.sql /app/trace-server/schema.sql
+
+# The admin service + its single-file client.
+COPY trace-admin/app_admin.py /app/trace-admin/app_admin.py
+COPY trace-admin/admin.html   /app/trace-admin/admin.html
+
+RUN useradd --uid 1000 --create-home app && chown -R app:app /app
+USER app
+WORKDIR /app/trace-admin
+
+# Deliberately NO DATABASE_URL here: db.py prefers an explicit DATABASE_URL over
+# the POSTGRES_* component vars, so leaving it unset lets the k8s POSTGRES_*
+# secret select the shared cluster Postgres. (Falls back to a local sqlite file
+# only when neither is provided — e.g. a bare `podman run` for a smoke test.)
+ENV PORT=5000
+EXPOSE 5000
+
+# Single worker: the login rate-limiter is in-process. Sessions are signed
+# client-side cookies, so they'd survive multiple replicas, but one replica
+# keeps the rate-limit coherent and is ample for a one-admin tool.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", \
+     "--timeout", "120", "--access-logfile", "-", "app_admin:app"]

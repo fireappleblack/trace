@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/STATUS.md
-     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
+     generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Trace — Status & Resilience Review
@@ -21,6 +21,20 @@ returns.
 > process doc). Keep the split clean — risk and status here, procedure there.
 
 **Changed since the last checkpoint:**
+- **Zip-game (2026-06-13, trace-core stage A):** **Shared game-logic core extracted + proven.**
+  New `trace-core/` subtree: `trace-core.js` is the generator/solver/signature/measures
+  engine sliced **verbatim** from `trace.html` and UMD-wrapped behind a spec-driven API
+  (`generate(spec)`, `enumerate(spec, cap)`, `signatureFor(spec)`, plus measures/`solve`).
+  Proven byte-identical to `trace.html` by `harness_golden.js`: capture / verify / **core**
+  all agree on digest `001d49fabbe022e6…` across **240 cases** (legacy squares, 9×9,
+  rectangles × difficulties × one/two-pen × wiggle/walls/points). The net also caught a
+  measurement bug (the golden `solveCount` now mirrors `newPuzzle`'s post-gen state sync —
+  the prior `golden.json` is superseded; boards unchanged). **`trace.html` is untouched**
+  this stage. Housekeeping landed: `.dockerignore` (ship `trace-core.js`, exclude the
+  dev harness/baseline/generator), `flatten.cfg` (`trace-core -> trcore`; `golden.json`
+  flatten-ignored), `RESPONSIBILITY.md`. **Next — stage B:** rewire `trace.html` to consume
+  the core (+ `app.py` serves it, Containerfile copies it), re-verify; then **stage C**:
+  admin find-the-shape on `enumerate()`, gated to the admin role.
 - **Zip-game (2026-06-13, admin v0.2.0):** **Multi-admin accounts + roles.** Replaced
   the single shared password with an `admin_users` table and a strict role hierarchy
   — **cleric** (site wording / `ui_text`) < **admin** (+ game design, find-the-shape)

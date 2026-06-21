@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Trace · Cairo prototype</title>
+<style>
+  :root{
+    --ground-0:#161222;--ground-1:#1e1733;--tile:#efe7fb;--tile-edge:#6b4aa0;
+    --trace:#c77dff;--trace-bright:#e9c2ff;--trace-deep:#8a3ffb;--wall:#2a1748;
+    --ink:#241636;--paper:#f3ecff;--muted:#a892cf;--line:#332652;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:radial-gradient(120% 90% at 50% -10%,#2a2147 0%,var(--ground-0) 60%) fixed;color:var(--paper);
+    font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;align-items:center;min-height:100%;padding:18px 16px 40px;}
+  header{width:100%;max-width:600px;}
+  .eyebrow{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--trace);font-weight:600;margin:0 0 2px;}
+  h1{margin:0;font-weight:800;letter-spacing:-.02em;font-size:clamp(24px,6vw,32px);}
+  h1 .dim{color:var(--muted);font-weight:600;}
+  .sub{margin:4px 0 0;color:var(--muted);font-size:13px;max-width:52ch;line-height:1.45;}
+  .stage{width:100%;max-width:600px;margin:14px 0 0;background:linear-gradient(180deg,#211a38,#15101f);
+    border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px -28px #000,inset 0 1px 0 #ffffff0a;padding:10px;}
+  svg{width:100%;height:auto;display:block;touch-action:none;}
+  .tile{stroke:var(--tile-edge);stroke-width:1.1;fill:var(--tile);transition:fill .18s ease;}
+  .tile.on{fill:#cfa8f5;} .tile.solved{fill:var(--trace-bright);}
+  .trace{fill:none;stroke:var(--trace);stroke-linecap:round;stroke-linejoin:round;filter:url(#glow);}
+  .trace.solved{stroke:var(--trace-bright);}
+  .reveal{fill:none;stroke:#caa2f088;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2 8;}
+  .wall{stroke:var(--wall);stroke-linecap:round;}
+  .wp circle{fill:var(--ink);stroke:var(--trace-bright);stroke-width:2;}
+  .wp text{fill:var(--trace-bright);font-weight:800;text-anchor:middle;dominant-baseline:central;}
+  .wp.term circle{fill:var(--trace-deep);stroke:#f0dcff;} .wp.term text{fill:#fff;}
+  .bar{width:100%;max-width:600px;margin:12px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  button,select{font:inherit;font-size:13px;font-weight:600;color:var(--paper);background:#241a3c;
+    border:1px solid var(--line);border-radius:10px;padding:9px 13px;cursor:pointer;transition:border-color .15s,background .15s,transform .05s;}
+  button:hover,select:hover{border-color:var(--trace-deep);background:#2c2049;}
+  button:active{transform:translateY(1px);}
+  button.primary{background:linear-gradient(180deg,var(--trace),var(--trace-deep));color:#1c1030;border-color:#6a32c8;}
+  button.primary:hover{background:linear-gradient(180deg,var(--trace-bright),var(--trace));}
+  button:focus-visible,select:focus-visible{outline:2px solid var(--trace-bright);outline-offset:2px;}
+  .spacer{flex:1 1 auto;}
+  label.ctl{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .status{width:100%;max-width:600px;margin:12px 0 0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
+  .status .big{color:var(--paper);font-weight:700;font-size:15px;} .status .win{color:var(--trace-bright);font-weight:800;}
+  .seed{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--muted);word-break:break-all;}
+  a.share{color:var(--trace);text-decoration:none;border-bottom:1px dotted #6a32c8;}
+  .note{width:100%;max-width:600px;margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line);color:#8a76b0;font-size:12px;line-height:1.5;}
+  @media (prefers-reduced-motion:reduce){.tile,.trace{transition:none;}}
+</style>
+</head>
+<body>
+<header>
+  <p class="eyebrow">Trace · prototype</p>
+  <h1>Cairo <span class="dim">/ pentagon topology</span></h1>
+  <p class="sub">One continuous line, every tile once, through the numbers in order — and never
+     across a wall. The Cairo pentagonal tiling (dual of the snub-square tiling): one convex
+     pentagon, four orientations, edge-to-edge.</p>
+</header>
+<div class="stage">
+  <svg id="board" xmlns="http://www.w3.org/2000/svg" aria-label="Cairo puzzle board">
+    <defs><filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter></defs>
+    <g id="g-cells"></g>
+    <polyline id="g-reveal" class="reveal" points=""></polyline>
+    <polyline id="g-trace" class="trace" points=""></polyline>
+    <g id="g-walls"></g>
+    <g id="g-wp"></g>
+  </svg>
+</div>
+<div class="bar">
+  <button class="primary" id="btn-new">New puzzle</button>
+  <button id="btn-surprise">Surprise me</button>
+  <button id="btn-reset">Reset line</button>
+  <button id="btn-undo">Undo</button>
+  <div class="spacer"></div>
+  <label class="ctl">Walls
+    <select id="sel-walls"><option value="0">None</option><option value="0.18">Light</option><option value="0.34" selected>Medium</option><option value="0.5">Heavy</option></select>
+  </label>
+  <label class="ctl">Points
+    <select id="sel-pts"><option>5</option><option>6</option><option selected>8</option><option>10</option><option>12</option></select>
+  </label>
+  <button id="btn-reveal">Reveal</button>
+</div>
+<div class="status"><span class="big" id="st-main">Tap the &#9312; to start.</span><span id="st-count">0 / 0 tiles</span></div>
+<div class="status"><span class="seed" id="st-seed"></span><a class="share" id="st-share" href="#">copy link</a></div>
+<div class="note">
+  Standalone prototype — does not touch <code>trace.html</code> or <code>trace-core.js</code>.
+  Board: the <b>validated</b> Cairo tiling (dual of the snub-square tiling; every tile a congruent
+  convex pentagon, edge-to-edge). <b>Walls</b> sit on edges the solution never uses, so the puzzle
+  stays solvable while cutting the player's options. Engine layers are identical to the hex sketch —
+  only the <b>topology layer</b> differs (polygon cells + shared-edge adjacency + walls + point-in-polygon).
+  Every rolled value is in the URL (<code>?topol=cairo&amp;pts=N&amp;walls=F&amp;seed=&hellip;</code>).
+</div>
+<script>
+'use strict';
+const BOARD = {"cells":[[[298.55,344.34],[344.34,344.34],[344.34,298.55],[315.31,281.8],[275.66,304.69]],[[304.69,413.01],[344.34,390.12],[344.34,344.34],[298.55,344.34],[281.8,373.36]],[[344.34,390.12],[373.36,406.87],[413.01,383.98],[390.12,344.34],[344.34,344.34]],[[344.34,344.34],[390.12,344.34],[406.87,315.31],[383.98,275.66],[344.34,298.55]],[[275.66,304.69],[315.31,281.8],[315.31,236.02],[269.53,236.02],[252.77,265.04]],[[206.99,310.82],[236.02,327.58],[275.66,304.69],[252.77,265.04],[206.99,265.04]],[[236.02,373.36],[281.8,373.36],[298.55,344.34],[275.66,304.69],[236.02,327.58]],[[315.31,281.8],[344.34,298.55],[383.98,275.66],[361.09,236.02],[315.31,236.02]],[[327.58,452.66],[373.36,452.66],[373.36,406.87],[344.34,390.12],[304.69,413.01]],[[390.12,344.34],[413.01,383.98],[452.66,361.09],[452.66,315.31],[406.87,315.31]],[[206.99,265.04],[252.77,265.04],[269.53,236.02],[246.64,196.37],[206.99,219.26]],[[190.23,373.36],[236.02,373.36],[236.02,327.58],[206.99,310.82],[167.34,333.71]],[[406.87,315.31],[452.66,315.31],[452.66,269.53],[423.63,252.77],[383.98,275.66]],[[383.98,275.66],[423.63,252.77],[423.63,206.99],[377.85,206.99],[361.09,236.02]],[[423.63,252.77],[452.66,269.53],[492.3,246.64],[469.41,206.99],[423.63,206.99]],[[315.31,236.02],[361.09,236.02],[377.85,206.99],[354.96,167.34],[315.31,190.23]],[[269.53,236.02],[315.31,236.02],[315.31,190.23],[286.29,173.48],[246.64,196.37]],[[286.29,173.48],[315.31,190.23],[354.96,167.34],[332.07,127.7],[286.29,127.7]],[[236.02,419.14],[265.04,435.9],[304.69,413.01],[281.8,373.36],[236.02,373.36]],[[265.04,481.68],[310.82,481.68],[327.58,452.66],[304.69,413.01],[265.04,435.9]],[[196.37,442.03],[236.02,419.14],[236.02,373.36],[190.23,373.36],[173.48,402.38]],[[219.26,481.68],[265.04,481.68],[265.04,435.9],[236.02,419.14],[196.37,442.03]],[[310.82,481.68],[333.71,521.33],[373.36,498.44],[373.36,452.66],[327.58,452.66]],[[127.7,402.38],[173.48,402.38],[190.23,373.36],[167.34,333.71],[127.7,356.6]],[[373.36,452.66],[419.14,452.66],[435.9,423.63],[413.01,383.98],[373.36,406.87]],[[435.9,423.63],[481.68,423.63],[481.68,377.85],[452.66,361.09],[413.01,383.98]],[[373.36,498.44],[402.38,515.19],[442.03,492.3],[419.14,452.66],[373.36,452.66]],[[419.14,452.66],[442.03,492.3],[481.68,469.41],[481.68,423.63],[435.9,423.63]],[[452.66,361.09],[481.68,377.85],[521.33,354.96],[498.44,315.31],[452.66,315.31]],[[452.66,315.31],[498.44,315.31],[515.19,286.29],[492.3,246.64],[452.66,269.53]],[[356.6,560.98],[402.38,560.98],[402.38,515.19],[373.36,498.44],[333.71,521.33]],[[498.44,315.31],[521.33,354.96],[560.98,332.07],[560.98,286.29],[515.19,286.29]],[[161.21,265.04],[206.99,265.04],[206.99,219.26],[177.97,202.5],[138.32,225.39]],[[167.34,333.71],[206.99,310.82],[206.99,265.04],[161.21,265.04],[144.45,294.06]],[[98.67,339.85],[127.7,356.6],[167.34,333.71],[144.45,294.06],[98.67,294.06]],[[177.97,202.5],[206.99,219.26],[246.64,196.37],[223.75,156.72],[177.97,156.72]],[[246.64,196.37],[286.29,173.48],[286.29,127.7],[240.51,127.7],[223.75,156.72]],[[98.67,294.06],[144.45,294.06],[161.21,265.04],[138.32,225.39],[98.67,248.28]],[[81.91,402.38],[127.7,402.38],[127.7,356.6],[98.67,339.85],[59.02,362.74]],[[177.97,156.72],[223.75,156.72],[240.51,127.7],[217.62,88.05],[177.97,110.94]],[[423.63,206.99],[469.41,206.99],[486.17,177.97],[463.28,138.32],[423.63,161.21]],[[377.85,206.99],[423.63,206.99],[423.63,161.21],[394.61,144.45],[354.96,167.34]],[[354.96,167.34],[394.61,144.45],[394.61,98.67],[348.83,98.67],[332.07,127.7]],[[492.3,246.64],[531.95,223.75],[531.95,177.97],[486.17,177.97],[469.41,206.99]],[[515.19,286.29],[560.98,286.29],[560.98,240.51],[531.95,223.75],[492.3,246.64]],[[394.61,144.45],[423.63,161.21],[463.28,138.32],[440.39,98.67],[394.61,98.67]],[[286.29,127.7],[332.07,127.7],[348.83,98.67],[325.94,59.02],[286.29,81.91]],[[240.51,127.7],[286.29,127.7],[286.29,81.91],[257.26,65.16],[217.62,88.05]],[[202.5,510.7],[225.39,550.35],[265.04,527.46],[265.04,481.68],[219.26,481.68]],[[265.04,527.46],[294.06,544.22],[333.71,521.33],[310.82,481.68],[265.04,481.68]],[[294.06,590.0],[339.85,590.0],[356.6,560.98],[333.71,521.33],[294.06,544.22]],[[156.72,510.7],[202.5,510.7],[219.26,481.68],[196.37,442.03],[156.72,464.92]],[[127.7,448.17],[156.72,464.92],[196.37,442.03],[173.48,402.38],[127.7,402.38]],[[88.05,471.06],[127.7,448.17],[127.7,402.38],[81.91,402.38],[65.16,431.41]],[[248.28,590.0],[294.06,590.0],[294.06,544.22],[265.04,527.46],[225.39,550.35]],[[110.94,510.7],[156.72,510.7],[156.72,464.92],[127.7,448.17],[88.05,471.06]],[[481.68,469.41],[521.33,492.3],[544.22,452.66],[527.46,423.63],[481.68,423.63]],[[481.68,423.63],[527.46,423.63],[544.22,394.61],[521.33,354.96],[481.68,377.85]],[[464.92,531.95],[498.44,531.95],[521.33,492.3],[481.68,469.41],[442.03,492.3]],[[402.38,560.98],[448.17,560.98],[464.92,531.95],[442.03,492.3],[402.38,515.19]],[[138.32,225.39],[177.97,202.5],[177.97,156.72],[132.19,156.72],[115.43,185.74]],[[69.65,231.53],[98.67,248.28],[138.32,225.39],[115.43,185.74],[69.65,185.74]],[[132.19,156.72],[177.97,156.72],[177.97,110.94],[148.94,94.18],[109.3,117.07]],[[69.65,185.74],[115.43,185.74],[132.19,156.72],[109.3,117.07],[69.65,139.96]],[[52.89,294.06],[98.67,294.06],[98.67,248.28],[69.65,231.53],[30.0,254.42]],[[59.02,362.74],[98.67,339.85],[98.67,294.06],[52.89,294.06],[36.13,323.09]],[[486.17,177.97],[531.95,177.97],[531.95,132.19],[502.93,115.43],[463.28,138.32]],[[463.28,138.32],[502.93,115.43],[502.93,69.65],[457.15,69.65],[440.39,98.67]],[[394.61,98.67],[440.39,98.67],[457.15,69.65],[434.26,30.0],[394.61,52.89]],[[348.83,98.67],[394.61,98.67],[394.61,52.89],[365.58,36.13],[325.94,59.02]]],"adj":[[1,3,4,6,7],[0,2,6,8,18],[1,3,8,9,24],[0,2,7,9,12],[0,5,7,10,16],[4,6,10,11,33],[0,1,5,11,18],[0,3,4,13,15],[1,2,19,22,24],[2,3,12,25,28],[4,5,16,32,35],[5,6,20,23,33],[3,9,13,14,29],[7,12,14,15,41],[12,13,29,40,43],[7,13,16,17,41],[4,10,15,17,36],[15,16,36,42,46],[1,6,19,20,21],[8,18,21,22,49],[11,18,21,23,52],[18,19,20,48,51],[8,19,26,30,49],[11,20,34,38,52],[2,8,25,26,27],[9,24,27,28,57],[22,24,27,30,59],[24,25,26,56,58],[9,25,29,31,57],[12,14,28,31,44],[22,26,50,59],[28,29,44],[10,33,35,37,60],[5,11,32,34,37],[23,33,37,38,65],[10,32,36,39,60],[16,17,35,39,47],[32,33,34,61,64],[23,34,53,65],[35,36,47,62],[14,41,43,45,66],[13,15,40,42,45],[17,41,45,46,69],[14,40,44,66],[29,31,43],[40,41,42,67,68],[17,42,47,69],[36,39,46],[21,49,51,54],[19,22,48,50,54],[30,49,54],[21,48,52,55],[20,23,51,53,55],[38,52,55],[48,49,50],[51,52,53],[27,57,58],[25,28,56],[27,56,59],[26,30,58],[32,35,61,62,63],[37,60,63,64],[39,60,63],[60,61,62],[37,61,65],[34,38,64],[40,43,67],[45,66,68],[45,67,69],[42,46,68]],"W":591.0,"H":620.0};
+
+/* ── RNG (shared verbatim with trace.html) ── */
+function xmur3(str){let h=1779033703^str.length;for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=h<<13|h>>>19;}return function(){h=Math.imul(h^h>>>16,2246822507);h=Math.imul(h^h>>>13,3266489909);return(h^=h>>>16)>>>0;};}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function makeRNG(seedStr){const s=xmur3(String(seedStr));return mulberry32(s());}
+
+/* ── GENERATOR + PUZZLE (topology-agnostic: cells/neighbors/key only) ── */
+function generateHamiltonian(topo,seed){
+  const N=topo.count,K=topo.key,adj=new Map();
+  for(const c of topo.cells) adj.set(K(c),topo.neighbors(c));
+  const shuffle=(a,r)=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+  for(let attempt=0;attempt<160;attempt++){
+    const rng=makeRNG(seed+':'+attempt);
+    const start=topo.cells[Math.floor(rng()*N)];
+    const visited=new Set([K(start)]),path=[start]; let nodes=0; const CAP=600000;
+    const dfs=()=>{
+      if(path.length===N)return true; if(++nodes>CAP)return false;
+      const cur=path[path.length-1];
+      let cs=adj.get(K(cur)).filter(n=>!visited.has(K(n)));
+      shuffle(cs,rng);
+      cs.sort((a,b)=>adj.get(K(a)).filter(n=>!visited.has(K(n))).length-adj.get(K(b)).filter(n=>!visited.has(K(n))).length);
+      for(const nx of cs){visited.add(K(nx));path.push(nx);if(dfs())return true;path.pop();visited.delete(K(nx));}
+      return false;
+    };
+    if(dfs())return path;
+  }
+  return null;
+}
+function pickWaypoints(path,count){
+  const N=path.length,idx=[];
+  for(let i=0;i<count;i++) idx.push(Math.round(i*(N-1)/(count-1)));
+  const seen=new Set(),out=[];
+  for(const i of idx) if(!seen.has(i)){seen.add(i);out.push(i);}
+  return out.map((i,label)=>({cell:path[i],pathIndex:i,label:label+1}));
+}
+// walls: a deterministic set of board edges NOT used by the solution path (so it stays solvable).
+function ekeyOf(a,b){return Math.min(a,b)+','+Math.max(a,b);}
+function selectWalls(topo,solution,frac,seed){
+  if(frac<=0) return new Set();
+  const path=new Set();
+  for(let i=1;i<solution.length;i++) path.add(ekeyOf(solution[i-1],solution[i]));
+  let cand=[];
+  for(let i=0;i<topo.count;i++) for(const j of topo.neighbors(i)) if(i<j && !path.has(ekeyOf(i,j))) cand.push(ekeyOf(i,j));
+  const r=makeRNG(seed+':walls');
+  for(let i=cand.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[cand[i],cand[j]]=[cand[j],cand[i]];}
+  return new Set(cand.slice(0,Math.round(frac*cand.length)));
+}
+function isSolved(topo,line,waypoints){
+  if(line.length!==topo.count) return false;
+  const pos=new Map(line.map((c,i)=>[topo.key(c),i]));
+  let last=-1;
+  for(const wp of waypoints){const p=pos.get(topo.key(wp.cell)); if(p===undefined||p<=last) return false; last=p;}
+  return true;
+}
+
+/* ── TOPOLOGY (Cairo): integer cells + shared-edge adjacency + polygon geometry ── */
+function centroid(poly){let x=0,y=0;for(const p of poly){x+=p[0];y+=p[1];}return[x/poly.length,y/poly.length];}
+function pointInPoly(px,py,poly){let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
+    if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi)) inside=!inside;
+  } return inside;}
+const CairoTopo={
+  count:BOARD.cells.length, cells:BOARD.cells.map((_,i)=>i), key:(i)=>i,
+  neighbors:(i)=>BOARD.adj[i], polygon:(i)=>BOARD.cells[i], center:(i)=>centroid(BOARD.cells[i]),
+  W:BOARD.W, H:BOARD.H,
+  pixelToCell(px,py){for(let i=0;i<BOARD.cells.length;i++) if(pointInPoly(px,py,BOARD.cells[i])) return i; return null;},
+  edgeBetween(i,j){const A=BOARD.cells[i],B=BOARD.cells[j],sh=[];
+    for(const p of A) for(const q of B) if(Math.abs(p[0]-q[0])<0.2&&Math.abs(p[1]-q[1])<0.2){sh.push(p);break;}
+    return sh.length>=2?[sh[0],sh[1]]:null;}
+};
+
+/* ════ RENDER + INPUT (browser only) ════ */
+if(typeof document!=='undefined') (function(){
+  const SVG='http://www.w3.org/2000/svg';
+  const svg=document.getElementById('board'),gCells=document.getElementById('g-cells'),gWp=document.getElementById('g-wp');
+  const gWalls=document.getElementById('g-walls');
+  const elTrace=document.getElementById('g-trace'),elReveal=document.getElementById('g-reveal');
+  const stMain=document.getElementById('st-main'),stCount=document.getElementById('st-count');
+  const stSeed=document.getElementById('st-seed'),stShare=document.getElementById('st-share');
+  const selPts=document.getElementById('sel-pts'),selWalls=document.getElementById('sel-walls');
+  const topo=CairoTopo;
+  let solution,waypoints,walls,line,drawing,revealed=false,solved=false,curSeed;
+  let cellEls=[];
+  svg.setAttribute('viewBox','0 0 '+topo.W+' '+topo.H);
+  const SZ=Math.sqrt((topo.W*topo.H)/topo.count)*0.42;
+  const walled=(a,b)=>walls.has(Math.min(a,b)+','+Math.max(a,b));
+
+  function build(seed,pts,wallFrac){
+    solution=generateHamiltonian(topo,seed);
+    if(!solution){stMain.textContent='Generation failed — try New.';return;}
+    waypoints=pickWaypoints(solution,pts);
+    walls=selectWalls(topo,solution,wallFrac,seed);
+    line=[];drawing=false;solved=false;
+    gCells.textContent='';cellEls=[];
+    for(let i=0;i<topo.count;i++){
+      const poly=document.createElementNS(SVG,'polygon');
+      poly.setAttribute('points',topo.polygon(i).map(p=>p[0]+','+p[1]).join(' '));
+      poly.setAttribute('class','tile');gCells.appendChild(poly);cellEls[i]=poly;
+    }
+    gWalls.textContent='';
+    for(const k of walls){
+      const [a,b]=k.split(',').map(Number),e=topo.edgeBetween(a,b); if(!e)continue;
+      const ln=document.createElementNS(SVG,'line');
+      ln.setAttribute('x1',e[0][0]);ln.setAttribute('y1',e[0][1]);ln.setAttribute('x2',e[1][0]);ln.setAttribute('y2',e[1][1]);
+      ln.setAttribute('class','wall');ln.setAttribute('stroke-width',SZ*0.6);gWalls.appendChild(ln);
+    }
+    gWp.textContent='';
+    for(const wp of waypoints){
+      const c=topo.center(wp.cell),term=wp.label===1||wp.label===waypoints.length;
+      const g=document.createElementNS(SVG,'g');g.setAttribute('class','wp'+(term?' term':''));
+      const ci=document.createElementNS(SVG,'circle');ci.setAttribute('cx',c[0]);ci.setAttribute('cy',c[1]);ci.setAttribute('r',SZ);
+      const tx=document.createElementNS(SVG,'text');tx.setAttribute('x',c[0]);tx.setAttribute('y',c[1]);tx.setAttribute('font-size',SZ*1.4);tx.textContent=wp.label;
+      g.appendChild(ci);g.appendChild(tx);gWp.appendChild(g);
+    }
+    drawReveal();redraw();
+    stSeed.textContent='topol=cairo · pts='+waypoints.length+' · walls='+walls.size+' · seed='+seed;
+    setURL(seed,waypoints.length,wallFrac);stMain.innerHTML='Tap the &#9312; to start.';
+  }
+  const ptsStr=(arr)=>arr.map(i=>{const c=topo.center(i);return c[0]+','+c[1];}).join(' ');
+  function drawReveal(){elReveal.setAttribute('points',revealed?ptsStr(solution):'');elReveal.setAttribute('stroke-width',SZ*0.4);}
+  function redraw(){
+    elTrace.setAttribute('points',ptsStr(line));elTrace.setAttribute('stroke-width',SZ*1.15);
+    const on=new Set(line);
+    for(let i=0;i<cellEls.length;i++) cellEls[i].classList.toggle('on',on.has(i));
+    stCount.textContent=line.length+' / '+topo.count+' tiles';
+    solved=isSolved(topo,line,waypoints);elTrace.classList.toggle('solved',solved);
+    if(solved){for(const el of cellEls){el.classList.remove('on');el.classList.add('solved');}stMain.innerHTML='<span class="win">Solved.</span> Every stone, in order.';}
+    else if(line.length) stMain.textContent='Keep going — drag to a touching tile.';
+  }
+  function cellAt(ev){const pt=svg.createSVGPoint();pt.x=ev.clientX;pt.y=ev.clientY;
+    const loc=pt.matrixTransform(svg.getScreenCTM().inverse());return topo.pixelToCell(loc.x,loc.y);}
+  const head=()=>line[line.length-1];
+  const isAdj=(a,b)=>topo.neighbors(a).includes(b);
+  function startAt(c){if(solved||c==null)return;
+    if(c===waypoints[0].cell){line=[c];drawing=true;redraw();}
+    else if(line.length&&c===head())drawing=true;}
+  function extendTo(c){if(!drawing||c==null||solved)return;
+    if(line.length>=2&&c===line[line.length-2]){line.pop();redraw();return;}
+    if(line.includes(c))return;
+    if(!isAdj(head(),c)||walled(head(),c))return;     // can't cross a wall
+    line.push(c);redraw();}
+  svg.addEventListener('pointerdown',e=>{e.preventDefault();const c=cellAt(e);if(c!=null){startAt(c);svg.setPointerCapture(e.pointerId);}});
+  svg.addEventListener('pointermove',e=>{if(!drawing)return;e.preventDefault();extendTo(cellAt(e));});
+  const stop=()=>{drawing=false;};svg.addEventListener('pointerup',stop);svg.addEventListener('pointercancel',stop);
+
+  const randSeed=()=>Math.random().toString(36).slice(2,9);
+  const rebuild=(seed)=>build(seed,+selPts.value,+selWalls.value);
+  document.getElementById('btn-new').onclick=()=>rebuild(randSeed());
+  document.getElementById('btn-surprise').onclick=()=>{selPts.value=['5','6','8','10','12'][Math.floor(Math.random()*5)];
+    selWalls.value=['0.18','0.34','0.5'][Math.floor(Math.random()*3)];rebuild(randSeed());};
+  document.getElementById('btn-reset').onclick=()=>{if(solved)return;line=[];drawing=false;redraw();stMain.innerHTML='Tap the &#9312; to start.';};
+  document.getElementById('btn-undo').onclick=()=>{if(solved||!line.length)return;line.pop();redraw();};
+  document.getElementById('btn-reveal').onclick=()=>{revealed=!revealed;drawReveal();};
+  selPts.onchange=()=>rebuild(curSeed); selWalls.onchange=()=>rebuild(curSeed);
+  function setURL(seed,pts,wf){curSeed=seed;
+    try{const u=new URL(location.href);u.searchParams.set('topol','cairo');u.searchParams.set('pts',pts);
+      u.searchParams.set('walls',wf);u.searchParams.set('seed',seed);history.replaceState(null,'',u);stShare.href=u.toString();}
+    catch(e){stShare.href='?topol=cairo&pts='+pts+'&walls='+wf+'&seed='+seed;}}
+  stShare.onclick=(e)=>{e.preventDefault();const link=(()=>{try{return location.href;}catch(_){return stShare.href;}})();
+    navigator.clipboard?.writeText(link).then(()=>{stShare.textContent='copied ✓';setTimeout(()=>stShare.textContent='copy link',1400);},()=>{});};
+
+  const q=new URLSearchParams(location.search);
+  const seed0=q.get('seed')||randSeed();
+  const pts0=Math.min(12,Math.max(5,+(q.get('pts')||selPts.value)));
+  selPts.value=String([5,6,8,10,12].reduce((a,b)=>Math.abs(b-pts0)<Math.abs(a-pts0)?b:a));
+  if(q.get('walls')!=null){const wf=+q.get('walls');selWalls.value=['0','0.18','0.34','0.5'].reduce((a,b)=>Math.abs(+b-wf)<Math.abs(+a-wf)?b:a);}
+  build(seed0,+selPts.value,+selWalls.value);
+})();
+</script>
+</body>
+</html>

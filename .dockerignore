@@ -1,6 +1,6 @@
 # flatten:begin
 # repo-path: .dockerignore
-# generated: 2026-06-06T16:14:29Z by flatten.py — do not edit this block
+# generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
 # flatten:end
 
 # Build-context excludes (read by Podman and Docker).
@@ -35,3 +35,10 @@ mnt/
 # Docs and deploy manifests aren't needed inside the runtime image
 **/README.md
 trace-server/deploy/
+
+# trace-core: ship the module (trace-core.js); exclude its dev harness, the
+# captured baseline, the generator, and any scratch extraction.
+trace-core/harness_golden.js
+trace-core/extract_core.js
+trace-core/golden.json
+**/*_extracted.js

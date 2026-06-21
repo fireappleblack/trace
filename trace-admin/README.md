@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: trace-admin/README.md
-     generated: 2026-06-16T22:17:07Z by flatten.py — do not edit this block
+     generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
 flatten:end -->
 
 # trace-admin

@@ -1,0 +1,162 @@
+# flatten:begin
+# repo-path: trace-admin/deploy/admin-k8s.yaml
+# generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
+# flatten:end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trace ADMIN — Deployment / Service / Ingress
+# ─────────────────────────────────────────────────────────────────────────
+# Lives in the existing `trace` namespace and shares the game's dedicated
+# Postgres (the `trace-db` Secret + `trace-postgres` Service created by
+# trace-server/deploy/postgres.yaml). Apply AFTER postgres.yaml is up:
+#
+#   ./apply-admin.sh                                  # create trace-admin-secrets
+#   kubectl apply -f trace-admin/deploy/admin-k8s.yaml
+#
+# ── INFRA-LANE HANDOFF (these are NOT in this file's gift) ──────────────────
+# This Ingress exposes a public subdomain. Before it works, the platform/infra
+# chat needs to, for `admin.zip.hsabren.co.uk`:
+#   1. Add a DNS record → the node's public IP (Cloudflare).
+#   2. Ensure the cert issuer covers the host (HTTP-01 today, or DNS-01 per the
+#      in-progress Cloudflare migration). Start on letsencrypt-staging, then
+#      flip to letsencrypt-prod and `cmctl renew` (NEVER delete the secret).
+#   3. **Put an edge gate in front** — this is an admin surface. Cloudflare
+#      Access (email OTP) is the cleanest; a Traefik IP-allowlist middleware or
+#      basic-auth middleware are alternatives. App-level login is defense in
+#      depth, not the only wall. (A Traefik middleware annotation placeholder is
+#      noted on the Ingress below — wire it to a real middleware in the infra lane.)
+# ─────────────────────────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-admin
+  namespace: trace
+  labels:
+    app: trace-admin
+spec:
+  # One replica: in-process login rate-limiter. Signed-cookie sessions would
+  # survive more, but a single replica is ample for one admin.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: trace-admin
+  template:
+    metadata:
+      labels:
+        app: trace-admin
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull            # same private-GHCR pull secret as the app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h trace-postgres -p 5432 -U "$POSTGRES_USER"; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trace-db
+                  key: POSTGRES_USER
+      containers:
+        - name: trace-admin
+          # Bootstrap tag for the first apply; a deploy script can bump the live
+          # tag with `kubectl set image` thereafter.
+          image: ghcr.io/fireappleblack/trace-admin:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+              name: http
+          # POSTGRES_* (shared DB creds) + the admin's own secrets. No
+          # DATABASE_URL is set anywhere, so db.py assembles the Postgres URL
+          # from POSTGRES_* — selecting the shared cluster database.
+          envFrom:
+            - secretRef:
+                name: trace-db              # POSTGRES_USER / PASSWORD / DB
+            - secretRef:
+                name: trace-admin-secrets   # ADMIN_PASSWORD / ADMIN_SECRET_KEY
+          env:
+            - name: POSTGRES_HOST
+              value: trace-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_CONNECT_RETRIES
+              value: "30"
+            - name: POSTGRES_CONNECT_DELAY
+              value: "2"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 250m
+              memory: 192Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-admin
+  namespace: trace
+  labels:
+    app: trace-admin
+spec:
+  type: ClusterIP
+  selector:
+    app: trace-admin
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: trace-admin
+  namespace: trace
+  labels:
+    app: trace-admin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging   # → letsencrypt-prod once verified
+    # INFRA: attach an edge gate here, e.g. a Traefik middleware that does
+    # IP-allowlist or forward-auth (Cloudflare Access). Example once defined:
+    # traefik.ingress.kubernetes.io/router.middlewares: trace-admin-ipallowlist@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - admin.zip.hsabren.co.uk
+      secretName: trace-admin-tls
+  rules:
+    - host: admin.zip.hsabren.co.uk
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: trace-admin
+                port:
+                  number: 80

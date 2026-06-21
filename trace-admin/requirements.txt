@@ -1,0 +1,17 @@
+# flatten:begin
+# repo-path: trace-admin/requirements.txt
+# generated: 2026-06-21T17:35:52Z by flatten.py — do not edit this block
+# flatten:end
+
+# Trace ADMIN service dependencies (a SEPARATE service from trace-server).
+#
+# Flask          — web framework; bundles Werkzeug, which provides the password
+#                  hashing (generate/check_password_hash) and signed sessions
+#                  the admin auth relies on. No extra auth library needed.
+# gunicorn       — production WSGI server used in the container image.
+# psycopg2-binary — Postgres driver; the admin shares the game's dedicated
+#                  Postgres by importing trace-server/db.py.
+
+Flask>=3.0,<4.0
+gunicorn>=21.2,<23.0
+psycopg2-binary>=2.9,<3.0
