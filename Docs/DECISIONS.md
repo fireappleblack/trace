@@ -1,6 +1,6 @@
 <!-- flatten:begin
      repo-path: Docs/DECISIONS.md
-     generated: 2026-06-21T16:36:54Z by flatten.py — do not edit this block
+     generated: 2026-06-21T17:00:36Z by flatten.py — do not edit this block
 flatten:end -->
 
 # Decisions Log
@@ -84,6 +84,22 @@ valuable shared principle.
 **Refs:** `biglabel/` (Containerfile, nginx.conf, deploy/biglabel-k8s.yaml,
 deploy.sh, README.md); DEPLOYMENT §5 (TLS); platform/cloudflare/ (edge).
 Supersedes nothing.
+
+### 2026-06-21 [zip-game] — Uniqueness constraint intentionally dropped: many solutions by design (pattern-matching contest)
+**Decision:** A Trace puzzle is **no longer required to have a unique solution.** Multiple valid lines may solve the same board, and that is **intended**, not a defect to engineer away. "Solved" means the line covers every playable cell, hits the numbered waypoints in order, and crosses no wall — it is **not** compared against a stored "the" solution.
+**Why:** it unlocks a **pattern-matching contest** format. Rather than racing to find *the* path, players match a designated target *shape*, and submissions are judged on how closely they match. Many-solutions is the substrate that makes that contest meaningful.
+**Consequences:**
+- **Walls are a difficulty/feel knob, not a uniqueness device.** They prune the player's options and shape the board; they are placed only on edges the intended solution doesn't use (so the board stays solvable), but they are not there to force a single answer. (The Cairo prototype already treats them this way — validated that the solution never crosses a wall.)
+- **`enumerate(spec, cap)` is reframed.** No longer a "prove exactly one" gate — it is the mechanism that **surfaces the whole solution space**. Stage C find-the-shape uses it so an admin can browse solutions and **designate one as "the shape"** (the contest target); a scorer later judges how closely a submission matches it. Find-the-shape becomes *more* central under this decision, not less.
+- **Consistent with the live engine + `trace-core`.** The v0.42 generator already funnels through `generateCandidate` **without** calling `enforceUniqueness`, so the live game wasn't enforcing uniqueness anyway — this ratifies that. `enforceUniqueness`/`pickAlternate` remain in `trace-core` as **dormant tools** (off the generation path) and may be pruned later.
+**Open (scorer, not plumbing):** scoring model — **"match the designated shape"** (compare a submission to one admin-chosen target) vs **"any solution, ranked by an intrinsic pattern metric"**. This affects only what the scorer compares against; the `enumerate` machinery is the same either way. **Refs:** Cairo prototype `selectWalls`/`isSolved`; `trace-core` `enumerate`.
+
+### 2026-06-13 [zip-game] — trace-core stage A: shared game-logic core extracted + proven
+**Decision:** extract the game-logic engine (RNG, helpers, blanks, size/points, config, measures, generators, solver, waypoints/walls, orchestration, `boardSignature`) **verbatim** from `trace.html` into `trace-core/trace-core.js`, a UMD module (browser `<script>` global + Node `require`) with a **spec-driven API** — `generate(spec)`, `enumerate(spec, cap)`, `signatureFor(spec)`, plus the pure measures and `solve`. `spec = {rows,cols,difficulty,wiggle,walls,points,twoPen,seed,bx}`. This is the prerequisite Ben chose (option A) for find-the-shape — the admin reuses the *real* generator/solver rather than a fragile Python re-port. It's also the first genuine step away from a strictly single-file client.
+**Method (verbatim, not rewrite):** `extract_core.js` slices each core declaration by source range out of the inline `<script>` (bodies unchanged), prepends a fresh state block, appends the spec API, and UMD-wraps. The only edit to engine code is a default-preserving `_COLLECT` knob in `solve()` (stored-solutions cap; default 2 = verbatim) so `enumerate()` can collect more without changing the hot path. Reproducible: `node extract_core.js` regenerates the module.
+**Proof:** `harness_golden.js` gained a shared battery (240 cases) and three modes — `capture` (golden from `trace.html`), `verify` (determinism), `core` (drive `trace-core.js`). All three agree on digest `001d49fabbe022e6…`, so the extraction is byte-identical to the live client across legacy squares, 9-dim, rectangles, difficulties, one/two-pen, and wiggle/walls/points. The net surfaced a real issue — the golden `solveCount` was measured against stale post-generation `waypoints`; corrected to mirror `newPuzzle`'s state sync (boards unchanged; prior `golden.json`/digest `421371358…` superseded).
+**Scope guard:** `trace.html` is **unchanged** this stage (zero live-client risk). **Stage B** rewires `trace.html` to load the proven core (+ `app.py` serves `trace-core.js`, Containerfile copies it, `?v=` cache-bust) and re-verifies; **stage C** builds admin find-the-shape on `enumerate()`, gated to the admin role.
+**Ownership/housekeeping:** `trace-core/** = Zip-game dev` (`RESPONSIBILITY.md`). `.dockerignore` ships `trace-core.js` but excludes the dev harness/baseline/generator; `flatten.cfg` maps `trace-core -> trcore` and flatten-ignores the generated `golden.json`. **Refs:** `trace-core/harness_golden.js`.
 
 ### 2026-06-13 [zip-game] — Admin: multi-admin accounts + role hierarchy (admin v0.2.0)
 **Decision:** replace the single shared admin password with **per-admin accounts + a strict, nested role hierarchy** — `cleric` (1) < `admin` (2) < `superadmin` (3) — enforced by a one-line `require_rank(min)` gate. Roles are cheap; the real change is **identity**: a shared password can't carry a role, so accounts (`admin_users`) are the prerequisite.
